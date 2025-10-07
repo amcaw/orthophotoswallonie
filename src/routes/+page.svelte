@@ -1,19 +1,23 @@
+<script>
+	import { base } from '$app/paths';
+</script>
+
 <div class="home-container">
 	<h1>Comparateur d'orthophotos Wallonie</h1>
 	<p>Comparez les images aériennes de 1971 et 2023</p>
 
 	<div class="links">
-		<a href="/lens" class="card">
+		<a href="{base}/lens" class="card">
 			<h2>Mode Loupe</h2>
 			<p>Comparez avec une loupe circulaire</p>
 		</a>
 
-		<a href="/timelapse" class="card">
+		<a href="{base}/timelapse" class="card">
 			<h2>Mode Timelapse</h2>
 			<p>Comparez n'importe quelle année</p>
 		</a>
 
-		<a href="/traveltime" class="card">
+		<a href="{base}/traveltime" class="card">
 			<h2>Travel in Time</h2>
 			<p>Voyagez à travers toutes les années</p>
 		</a>

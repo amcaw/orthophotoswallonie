@@ -1,14 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import type maplibregl from 'maplibre-gl';
 
   export let side: 'left' | 'right' = 'left';
-  export let label = 'Before';
-  export let idPrefix = 'before';
   export let groups: Array<any> = [];
   export let selectedId: string;
-  export let miniMapsRef: { [key: string]: maplibregl.Map } = {};
-  export let getCenterZoom: (() => { center: any; zoom: number; bearing: number; pitch: number }) = () => ({ center: [0, 0], zoom: 8, bearing: 0, pitch: 0 });
 
   const dispatch = createEventDispatcher();
   let isExpanded = false;

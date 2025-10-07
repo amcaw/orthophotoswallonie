@@ -629,23 +629,15 @@
 	<!-- Year Pickers outside map-wrapper -->
 	<YearPicker
 		side="left"
-		label="Before"
-		idPrefix="before"
 		groups={groupedOrthos}
 		selectedId={selectedBeforeGroupId}
-		{miniMapsRef}
-		{getCenterZoom}
 		on:select={(e) => updateBeforeLayer(e.detail.id)}
 	/>
 
 	<YearPicker
 		side="right"
-		label="After"
-		idPrefix="after"
 		groups={groupedOrthos}
 		selectedId={selectedAfterGroupId}
-		{miniMapsRef}
-		{getCenterZoom}
 		on:select={(e) => updateAfterLayer(e.detail.id)}
 	/>
 
