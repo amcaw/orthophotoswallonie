@@ -114,6 +114,7 @@
 		bottom: 60px;
 		right: 10px;
 		display: flex;
+		flex-direction: column;
 		gap: 8px;
 		z-index: 10;
 		background: rgba(255, 255, 255, 0.9);
@@ -156,7 +157,7 @@
 
 	@media (max-width: 768px) {
 		.share-buttons {
-			bottom: 60px;
+			bottom: 70px;
 			right: 5px;
 			padding: 6px;
 			gap: 6px;
