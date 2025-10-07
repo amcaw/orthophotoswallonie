@@ -472,6 +472,10 @@
 				fitToWallonia({ animate: false });
 			}
 		};
+
+		// Initial resize after a short delay to ensure container is properly sized
+		setTimeout(() => map.resize(), 100);
+
 		window.addEventListener('resize', onWinResize);
 		window.addEventListener('orientationchange', onWinResize);
 

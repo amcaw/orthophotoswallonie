@@ -367,7 +367,18 @@
 			}
 		});
 
+		// Ensure maps resize properly on load and window resize
+		const handleResize = () => {
+			if (beforeMap) beforeMap.resize();
+			if (afterMap) afterMap.resize();
+		};
+
+		// Initial resize after a short delay to ensure container is properly sized
+		setTimeout(handleResize, 100);
+		window.addEventListener('resize', handleResize);
+
 		return () => {
+			window.removeEventListener('resize', handleResize);
 			beforeMap.remove();
 			afterMap.remove();
 		};
@@ -442,7 +453,7 @@
 
 	.swap-button {
 		position: absolute;
-		bottom: 120px;
+		bottom: 150px;
 		left: 10px;
 		z-index: 1000;
 		background: #fff;

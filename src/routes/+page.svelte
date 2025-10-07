@@ -4,7 +4,7 @@
 
 <div class="home-container">
 	<h1>Comparateur d'orthophotos Wallonie</h1>
-	<p>Comparez les images aériennes de 1971 et 2023</p>
+	<p>Comparez les images aériennes de 1971 à 2023</p>
 
 	<div class="links">
 		<a href="{base}/lens" class="card">
@@ -29,6 +29,7 @@
 		margin: 0;
 		padding: 0;
 		font-family: system-ui, -apple-system, sans-serif;
+		background: white;
 	}
 
 	.home-container {
@@ -37,55 +38,74 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
 		padding: 2rem;
+		max-width: 1200px;
+		margin: 0 auto;
 	}
 
 	h1 {
-		font-size: 3rem;
+		font-size: 2.5rem;
 		margin-bottom: 0.5rem;
-		text-align: center;
+		color: #333;
+		font-weight: 600;
 	}
 
 	p {
-		font-size: 1.2rem;
-		opacity: 0.9;
+		font-size: 1.1rem;
 		margin-bottom: 3rem;
-		text-align: center;
+		color: #666;
 	}
 
 	.links {
 		display: flex;
-		gap: 2rem;
+		gap: 1.5rem;
 		flex-wrap: wrap;
 		justify-content: center;
+		width: 100%;
 	}
 
 	.card {
 		background: white;
 		color: #333;
 		padding: 2rem;
-		border-radius: 12px;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
 		text-decoration: none;
-		transition: transform 0.2s, box-shadow 0.2s;
-		min-width: 250px;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		transition: all 0.2s;
+		flex: 1;
+		min-width: 220px;
+		max-width: 300px;
 	}
 
 	.card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 8px 12px rgba(0, 0, 0, 0.2);
+		border-color: #3b82f6;
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
 	}
 
 	.card h2 {
 		margin: 0 0 0.5rem 0;
-		color: #667eea;
+		color: #1f2937;
+		font-size: 1.25rem;
+		font-weight: 600;
 	}
 
 	.card p {
 		margin: 0;
-		color: #666;
-		font-size: 1rem;
+		color: #6b7280;
+		font-size: 0.95rem;
+	}
+
+	@media (max-width: 768px) {
+		h1 {
+			font-size: 2rem;
+		}
+
+		p {
+			font-size: 1rem;
+		}
+
+		.card {
+			max-width: 100%;
+		}
 	}
 </style>

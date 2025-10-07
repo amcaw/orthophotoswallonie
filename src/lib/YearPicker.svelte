@@ -36,7 +36,15 @@
         tabindex="0"
       >
         <div class="circle">
-          <div class="year-label">{group.displayYear}</div>
+          <div class="year-label">
+            {#if group.displayYear.includes('-')}
+              {@const [start, end] = group.displayYear.split('-')}
+              <span class="year-line">{start}</span>
+              <span class="year-line">{end}</span>
+            {:else}
+              <span class="year-line">{group.displayYear}</span>
+            {/if}
+          </div>
         </div>
       </div>
     {/each}
@@ -158,10 +166,34 @@
     font-weight: 700;
     color: #333;
     text-align: center;
-    white-space: nowrap;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    gap: 1px;
+  }
+
+  .year-line {
+    display: block;
   }
 
   .year-circle.selected .year-label {
     color: #4a90e2;
+  }
+
+  @media (max-width: 640px) {
+    .circle {
+      width: 40px;
+      height: 40px;
+    }
+
+    .year-label {
+      font-size: 8px;
+    }
+
+    .expand-button {
+      width: 20px;
+      height: 20px;
+      font-size: 16px;
+    }
   }
 </style>

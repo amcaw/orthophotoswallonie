@@ -586,8 +586,19 @@
 		// Stop checking after 10 seconds
 		setTimeout(() => clearInterval(interval), 10000);
 
+		// Ensure maps resize properly on load and window resize
+		const handleResize = () => {
+			if (beforeMap) beforeMap.resize();
+			if (afterMap) afterMap.resize();
+		};
+
+		// Initial resize after a short delay to ensure container is properly sized
+		setTimeout(handleResize, 100);
+		window.addEventListener('resize', handleResize);
+
 		return () => {
 			clearInterval(interval);
+			window.removeEventListener('resize', handleResize);
 			beforeMap.remove();
 			afterMap.remove();
 			Object.values(miniMaps).forEach((miniMap) => miniMap.remove());
