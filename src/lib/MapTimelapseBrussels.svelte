@@ -6,6 +6,7 @@
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
 	import orthophotosBrusselsConfig from './orthophotosBrussels.json';
 	import YearPicker from './YearPicker.svelte';
+	import ShareButtons from './ShareButtons.svelte';
 
 	let beforeContainer: HTMLDivElement;
 	let afterContainer: HTMLDivElement;
@@ -14,6 +15,10 @@
 	let afterMap: maplibregl.Map;
 	let sliderValue = 50;
 	let isDragging = false;
+
+	// Track map position for sharing
+	let currentCenter: { lng: number; lat: number } = { lng: 4.35, lat: 50.85 };
+	let currentZoom: number = 11;
 
 	// Helper to generate WMS tile URL based on ortho config
 	function getTileUrl(ortho: any): string {
@@ -39,18 +44,6 @@
 	// Selected year groups
 	let selectedBeforeGroupId = groupedOrthos[0].id;
 	let selectedAfterGroupId = groupedOrthos[groupedOrthos.length - 1].id;
-	let miniMaps: { [key: string]: maplibregl.Map } = {};
-	let miniMapsRef = miniMaps; // Reference for YearPicker component
-
-	function getCenterZoom() {
-		if (!beforeMap) return { center: [4.3517, 50.8503], zoom: 12, bearing: 0, pitch: 0 };
-		return {
-			center: beforeMap.getCenter(),
-			zoom: beforeMap.getZoom(),
-			bearing: beforeMap.getBearing(),
-			pitch: beforeMap.getPitch()
-		};
-	}
 
 	function handleMouseDown(e: MouseEvent) {
 		e.preventDefault();
@@ -162,7 +155,34 @@
 	}
 
 	onMount(() => {
+		// Parse hash for shared position and years (#lat,lng,zoom,beforeYear,afterYear)
+		let initialPosition: { center: [number, number]; zoom: number } | null = null;
+		if (typeof window !== 'undefined' && window.location.hash) {
+			const hash = window.location.hash.slice(1);
+			const parts = hash.split(',');
+			if (parts.length >= 3) {
+				const lat = parseFloat(parts[0]);
+				const lng = parseFloat(parts[1]);
+				const zoom = parseFloat(parts[2].replace('z', ''));
+				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
+					initialPosition = { center: [lng, lat], zoom };
+				}
+				// Restore year selections if provided
+				if (parts.length >= 5) {
+					const beforeYear = parts[3];
+					const afterYear = parts[4];
+					if (groupedOrthos.find(g => g.id === beforeYear)) {
+						selectedBeforeGroupId = beforeYear;
+					}
+					if (groupedOrthos.find(g => g.id === afterYear)) {
+						selectedAfterGroupId = afterYear;
+					}
+				}
+			}
+		}
+
 		let isSyncing = false;
+		const geocoderCache = new Map<string, any>();
 
 		// Bounding box de Bruxelles
 		const brusselsBounds: [[number, number], [number, number]] = [
@@ -178,8 +198,7 @@
 		beforeMap = new maplibregl.Map({
 			container: beforeContainer,
 			style: { version: 8, sources: {}, layers: [] },
-			bounds: brusselsBounds,
-			fitBoundsOptions: { padding: 0 },
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 0 } }),
 			minZoom: 10,
 			maxZoom: 20,
 			attributionControl: false
@@ -189,8 +208,7 @@
 		afterMap = new maplibregl.Map({
 			container: afterContainer,
 			style: { version: 8, sources: {}, layers: [] },
-			bounds: brusselsBounds,
-			fitBoundsOptions: { padding: 0 },
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 0 } }),
 			minZoom: 10,
 			maxZoom: 20,
 			interactive: false,
@@ -209,9 +227,16 @@
 		// Add geocoder for address search
 		const geocoderApi = {
 			forwardGeocode: async (config: any) => {
+				const query = (config.query ?? '').trim().toLowerCase();
+
+				// Check cache first
+				if (geocoderCache.has(query)) {
+					return geocoderCache.get(query);
+				}
+
 				const features: any[] = [];
 				try {
-					const q = encodeURIComponent((config.query ?? '').trim());
+					const q = encodeURIComponent(query);
 					if (!q) return { type: 'FeatureCollection' as const, features };
 
 					const url =
@@ -301,7 +326,18 @@
 					console.error('forwardGeocode error:', e);
 				}
 
-				return { type: 'FeatureCollection' as const, features };
+				const result = { type: 'FeatureCollection' as const, features };
+
+				// Cache the result (limit cache size to 50 entries)
+				if (geocoderCache.size >= 50) {
+					const firstKey = geocoderCache.keys().next().value;
+					if (firstKey !== undefined) {
+						geocoderCache.delete(firstKey);
+					}
+				}
+				geocoderCache.set(query, result);
+
+				return result;
 			}
 		};
 
@@ -311,7 +347,7 @@
 			flyTo: false,
 			showResultsWhileTyping: true,
 			marker: false,
-			debounceSearch: 200,
+			debounceSearch: 400,
 			minLength: 2,
 			showResultMarkers: false
 		});
@@ -445,130 +481,28 @@
 		beforeMap.on('move', () => {
 			if (!isDragging && !isSyncing) {
 				syncMaps(beforeMap, afterMap);
-				// Sync all mini-maps
-				Object.values(miniMaps).forEach((miniMap) => {
-					miniMap.jumpTo({
-						center: beforeMap.getCenter(),
-						zoom: beforeMap.getZoom(),
-						bearing: beforeMap.getBearing(),
-						pitch: beforeMap.getPitch()
-					});
-				});
+			}
+			// Update position for share buttons and hash
+			const center = beforeMap.getCenter();
+			currentCenter = { lng: center.lng, lat: center.lat };
+			currentZoom = beforeMap.getZoom();
+
+			// Update URL hash with current position and selected years
+			if (typeof window !== 'undefined') {
+				window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z,${selectedBeforeGroupId},${selectedAfterGroupId}`;
 			}
 		});
 
-		// Create mini-maps for all grouped orthophotos (using new YearPicker IDs)
-		const createMiniMaps = () => {
-			groupedOrthos.forEach((group) => {
-				// Before mini-maps
-				const beforeId = `before-${group.id}`;
-				const beforeContainer = document.getElementById(`mini-${beforeId}`);
-				if (beforeContainer && !miniMaps[beforeId]) {
-					try {
-						const miniMap = new maplibregl.Map({
-							container: beforeContainer,
-							style: { version: 8, sources: {}, layers: [] },
-							center: beforeMap.getCenter(),
-							zoom: beforeMap.getZoom(),
-							interactive: false,
-							attributionControl: false
-						});
-
-						miniMap.once('load', () => {
-							group.layers.forEach((ortho: any) => {
-								miniMap.addSource(ortho.id, {
-									type: 'raster',
-									tiles: [getTileUrl(ortho)],
-									tileSize: 256,
-									maxzoom: 20
-								});
-								miniMap.addLayer({
-									id: `${ortho.id}-layer`,
-									type: 'raster',
-									source: ortho.id,
-									paint: {
-										'raster-opacity': 1,
-										'raster-fade-duration': 0,
-										'raster-resampling': 'nearest'
-									}
-								});
-							});
-
-							group.layers.forEach((ortho: any) => {
-								const layerId = `${ortho.id}-layer`;
-								if (miniMap.getLayer(layerId)) miniMap.moveLayer(layerId);
-							});
-						});
-
-						miniMaps[beforeId] = miniMap;
-					} catch (e) {
-						console.error('Error creating before minimap:', beforeId, e);
-					}
-				}
-
-				// After mini-maps
-				const afterId = `after-${group.id}`;
-				const afterContainer = document.getElementById(`mini-${afterId}`);
-				if (afterContainer && !miniMaps[afterId]) {
-					try {
-						const miniMap = new maplibregl.Map({
-							container: afterContainer,
-							style: { version: 8, sources: {}, layers: [] },
-							center: afterMap.getCenter(),
-							zoom: afterMap.getZoom(),
-							interactive: false,
-							attributionControl: false
-						});
-
-						miniMap.once('load', () => {
-							group.layers.forEach((ortho: any) => {
-								miniMap.addSource(ortho.id, {
-									type: 'raster',
-									tiles: [getTileUrl(ortho)],
-									tileSize: 256,
-									maxzoom: 20
-								});
-								miniMap.addLayer({
-									id: `${ortho.id}-layer`,
-									type: 'raster',
-									source: ortho.id,
-									paint: {
-										'raster-opacity': 1,
-										'raster-fade-duration': 0,
-										'raster-resampling': 'nearest'
-									}
-								});
-							});
-
-							group.layers.forEach((ortho: any) => {
-								const layerId = `${ortho.id}-layer`;
-								if (miniMap.getLayer(layerId)) miniMap.moveLayer(layerId);
-							});
-						});
-
-						miniMaps[afterId] = miniMap;
-					} catch (e) {
-						console.error('Error creating after minimap:', afterId, e);
-					}
-				}
-			});
-		};
-
-		// Initial creation with longer delay to ensure DOM is ready
-		setTimeout(createMiniMaps, 500);
-
-		// Re-check periodically for new containers
-		const interval = setInterval(() => {
-			createMiniMaps();
-		}, 1000);
-
-		// Stop checking after 10 seconds
-		setTimeout(() => clearInterval(interval), 10000);
-
 		// Ensure maps resize properly on load and window resize
+		let resizeTimeout: number | null = null;
 		const handleResize = () => {
-			if (beforeMap) beforeMap.resize();
-			if (afterMap) afterMap.resize();
+			if (resizeTimeout) return; // Already scheduled
+
+			resizeTimeout = window.setTimeout(() => {
+				if (beforeMap) beforeMap.resize();
+				if (afterMap) afterMap.resize();
+				resizeTimeout = null;
+			}, 250);
 		};
 
 		// Initial resize after a short delay to ensure container is properly sized
@@ -576,11 +510,9 @@
 		window.addEventListener('resize', handleResize);
 
 		return () => {
-			clearInterval(interval);
 			window.removeEventListener('resize', handleResize);
 			beforeMap.remove();
 			afterMap.remove();
-			Object.values(miniMaps).forEach((miniMap) => miniMap.remove());
 		};
 	});
 </script>
@@ -614,6 +546,14 @@
 				<span class="slider-arrows">◄ ►</span>
 			</div>
 		</div>
+
+		<ShareButtons
+			lat={currentCenter.lat}
+			lng={currentCenter.lng}
+			zoom={currentZoom}
+			yearBefore={selectedBeforeGroupId}
+			yearAfter={selectedAfterGroupId}
+		/>
 	</div>
 
 	<!-- Year Pickers outside map-wrapper -->

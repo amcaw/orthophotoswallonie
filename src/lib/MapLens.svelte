@@ -5,12 +5,17 @@
 	import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
 	import orthophotosConfig from './orthophotos.json';
+	import ShareButtons from './ShareButtons.svelte';
 
 	let beforeContainer: HTMLDivElement;
 	let afterContainer: HTMLDivElement;
 	let beforeMap: maplibregl.Map;
 	let afterMap: maplibregl.Map;
 	let isSwapped = false;
+
+	// Track map position for sharing
+	let currentCenter: { lng: number; lat: number } = { lng: 4.5, lat: 50.5 };
+	let currentZoom: number = 8;
 
 	const walloniaBounds: [[number, number], [number, number]] = [
 		[2.75, 49.45],
@@ -23,6 +28,22 @@
 
 	onMount(() => {
 		let isSyncing = false;
+		const geocoderCache = new Map<string, any>();
+
+		// Parse hash for shared position (#lat,lng,zoom)
+		let initialPosition: { center: [number, number]; zoom: number } | null = null;
+		if (typeof window !== 'undefined' && window.location.hash) {
+			const hash = window.location.hash.slice(1);
+			const parts = hash.split(',');
+			if (parts.length === 3) {
+				const lat = parseFloat(parts[0]);
+				const lng = parseFloat(parts[1]);
+				const zoom = parseFloat(parts[2].replace('z', ''));
+				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
+					initialPosition = { center: [lng, lat], zoom };
+				}
+			}
+		}
 
 		// Get orthophoto configs
 		const beforeOrtho = orthophotosConfig.orthophotos.find(o => o.id === 'ortho-1971')!;
@@ -51,8 +72,7 @@
 					}
 				]
 			},
-			bounds: walloniaBounds,
-			fitBoundsOptions: { padding: 20 },
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: 20 } }),
 			minZoom: 8,
 			maxZoom: 17,
 			attributionControl: false
@@ -81,8 +101,7 @@
 					}
 				]
 			},
-			bounds: walloniaBounds,
-			fitBoundsOptions: { padding: 20 },
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: 20 } }),
 			minZoom: 8,
 			maxZoom: 17,
 			attributionControl: false
@@ -100,9 +119,16 @@
 		// Add geocoder for address search to both maps
 		const geocoderApi = {
 			forwardGeocode: async (config: any) => {
+				const query = (config.query ?? '').trim().toLowerCase();
+
+				// Check cache first
+				if (geocoderCache.has(query)) {
+					return geocoderCache.get(query);
+				}
+
 				const features: any[] = [];
 				try {
-					const q = encodeURIComponent((config.query ?? '').trim());
+					const q = encodeURIComponent(query);
 					if (!q) return { type: 'FeatureCollection' as const, features };
 
 					const url =
@@ -193,7 +219,18 @@
 					console.error('forwardGeocode error:', e);
 				}
 
-				return { type: 'FeatureCollection' as const, features };
+				const result = { type: 'FeatureCollection' as const, features };
+
+				// Cache the result (limit cache size to 50 entries)
+				if (geocoderCache.size >= 50) {
+					const firstKey = geocoderCache.keys().next().value;
+					if (firstKey !== undefined) {
+						geocoderCache.delete(firstKey);
+					}
+				}
+				geocoderCache.set(query, result);
+
+				return result;
 			}
 		};
 
@@ -203,7 +240,7 @@
 			flyTo: false,
 			showResultsWhileTyping: true,
 			marker: false,
-			debounceSearch: 200,
+			debounceSearch: 400,
 			minLength: 2,
 			showResultMarkers: false
 		});
@@ -217,7 +254,7 @@
 			flyTo: false,
 			showResultsWhileTyping: true,
 			marker: false,
-			debounceSearch: 200,
+			debounceSearch: 400,
 			minLength: 2,
 			showResultMarkers: false
 		});
@@ -359,6 +396,14 @@
 			if (!isSyncing) {
 				syncMaps(afterMap, beforeMap);
 			}
+			// Update position for share buttons and hash
+			const center = afterMap.getCenter();
+			currentCenter = { lng: center.lng, lat: center.lat };
+			currentZoom = afterMap.getZoom();
+			// Update URL hash with current position
+			if (typeof window !== 'undefined') {
+				window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z`;
+			}
 		});
 
 		beforeMap.on('move', () => {
@@ -368,9 +413,15 @@
 		});
 
 		// Ensure maps resize properly on load and window resize
+		let resizeTimeout: number | null = null;
 		const handleResize = () => {
-			if (beforeMap) beforeMap.resize();
-			if (afterMap) afterMap.resize();
+			if (resizeTimeout) return; // Already scheduled
+
+			resizeTimeout = window.setTimeout(() => {
+				if (beforeMap) beforeMap.resize();
+				if (afterMap) afterMap.resize();
+				resizeTimeout = null;
+			}, 250);
 		};
 
 		// Initial resize after a short delay to ensure container is properly sized
@@ -398,6 +449,14 @@
 			<path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
 		</svg>
 	</button>
+
+	<ShareButtons
+		lat={currentCenter.lat}
+		lng={currentCenter.lng}
+		zoom={currentZoom}
+		yearBefore="ortho-1971"
+		yearAfter="ortho-2023"
+	/>
 
 </div>
 

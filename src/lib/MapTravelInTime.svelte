@@ -5,6 +5,7 @@
 	import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
 	import orthophotosConfig from './orthophotos.json';
+	import ShareButtons from './ShareButtons.svelte';
 
 	let mapContainer: HTMLDivElement;
 	let map: maplibregl.Map;
@@ -12,6 +13,10 @@
 	let currentIndex = 0;
 	let animationInterval: number | null = null;
 	let progressPercent = 0;
+
+	// Track map position for sharing
+	let currentCenter: { lng: number; lat: number } = { lng: 4.5, lat: 50.5 };
+	let currentZoom: number = 8;
 
 	const walloniaBounds: [[number, number], [number, number]] = [
 		[2.75, 49.45],
@@ -86,14 +91,45 @@
 			})
 		}));
 
-	function preloadNextLayer() {
+	function preloadAdjacentLayers() {
 		if (!map) return;
 
+		// Preload next layer
 		const nextIndex = (currentIndex + 1) % allOrthos.length;
 		const nextGroup = allOrthos[nextIndex];
 
-		// Add sources and layers for all seasons in the group
+		// Add sources and layers for all seasons in the next group
 		nextGroup.layers.forEach((ortho: any) => {
+			if (!map.getSource(ortho.id)) {
+				map.addSource(ortho.id, {
+					type: 'raster',
+					tiles: [
+						`${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`
+					],
+					tileSize: 256,
+					maxzoom: 18
+				});
+			}
+
+			if (!map.getLayer(`${ortho.id}-layer`)) {
+				map.addLayer({
+					id: `${ortho.id}-layer`,
+					type: 'raster',
+					source: ortho.id,
+					paint: {
+						'raster-opacity': 0,
+						'raster-fade-duration': 0
+					}
+				});
+			}
+		});
+
+		// Preload previous layer
+		const prevIndex = (currentIndex - 1 + allOrthos.length) % allOrthos.length;
+		const prevGroup = allOrthos[prevIndex];
+
+		// Add sources and layers for all seasons in the previous group
+		prevGroup.layers.forEach((ortho: any) => {
 			if (!map.getSource(ortho.id)) {
 				map.addSource(ortho.id, {
 					type: 'raster',
@@ -131,8 +167,8 @@
 		if (!map) return;
 		isPlaying = true;
 
-		// Preload next layer
-		preloadNextLayer();
+		// Preload adjacent layers
+		preloadAdjacentLayers();
 
 		// Animate progress bar smoothly starting from current progress
 		const startTime = Date.now();
@@ -164,7 +200,7 @@
 			if (targetIndex !== currentIndex) {
 				currentIndex = targetIndex;
 				updateLayer(fadeMs);
-				preloadNextLayer();
+				preloadAdjacentLayers();
 			}
 
 			animationInterval = window.requestAnimationFrame(animate);
@@ -306,7 +342,32 @@
 	}
 
 	onMount(() => {
+		const geocoderCache = new Map<string, any>();
 		const firstGroup = allOrthos[0];
+
+		// Parse hash for shared position and year (#lat,lng,zoom,yearId)
+		let initialPosition: { center: [number, number]; zoom: number } | null = null;
+		if (typeof window !== 'undefined' && window.location.hash) {
+			const hash = window.location.hash.slice(1);
+			const parts = hash.split(',');
+			if (parts.length >= 3) {
+				const lat = parseFloat(parts[0]);
+				const lng = parseFloat(parts[1]);
+				const zoom = parseFloat(parts[2].replace('z', ''));
+				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
+					initialPosition = { center: [lng, lat], zoom };
+				}
+				// Restore year selection if provided
+				if (parts.length >= 4) {
+					const yearId = parts[3];
+					const yearIndex = allOrthos.findIndex(g => g.id === yearId);
+					if (yearIndex !== -1) {
+						currentIndex = yearIndex;
+						progressPercent = (yearIndex / (allOrthos.length - 1)) * 100;
+					}
+				}
+			}
+		}
 
 		const initialSources: any = {};
 		const initialLayers: any[] = [];
@@ -342,6 +403,7 @@
 				layers: initialLayers
 			},
 			// Ne pas passer bounds ici (certains navigateurs mobile font un fit trop tôt)
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : {}),
 			maxZoom: 16,
 			minZoom: 6, // Will be dynamically adjusted by fitToWallonia
 			preserveDrawingBuffer: true,
@@ -355,9 +417,16 @@
 		// Add geocoder for address search
 		const geocoderApi = {
 			forwardGeocode: async (config: any) => {
+				const query = (config.query ?? '').trim().toLowerCase();
+
+				// Check cache first
+				if (geocoderCache.has(query)) {
+					return geocoderCache.get(query);
+				}
+
 				const features: any[] = [];
 				try {
-					const q = encodeURIComponent((config.query ?? '').trim());
+					const q = encodeURIComponent(query);
 					if (!q) return { type: 'FeatureCollection' as const, features };
 
 					const url =
@@ -422,7 +491,18 @@
 					console.error('forwardGeocode error:', e);
 				}
 
-				return { type: 'FeatureCollection' as const, features };
+				const result = { type: 'FeatureCollection' as const, features };
+
+				// Cache the result (limit cache size to 50 entries)
+				if (geocoderCache.size >= 50) {
+					const firstKey = geocoderCache.keys().next().value;
+					if (firstKey !== undefined) {
+						geocoderCache.delete(firstKey);
+					}
+				}
+				geocoderCache.set(query, result);
+
+				return result;
 			}
 		};
 
@@ -432,7 +512,7 @@
 			flyTo: true,
 			showResultsWhileTyping: true,
 			marker: false,
-			debounceSearch: 200,
+			debounceSearch: 400,
 			minLength: 2,
 			showResultMarkers: false
 		});
@@ -440,8 +520,28 @@
 		map.addControl(geocoder, 'top-left');
 		map.addControl(new maplibregl.NavigationControl(), 'top-left');
 
-		// Fit lorsque la carte est totalement "idle" (style + sources + layers prêts)
-		map.once('idle', () => fitToWallonia({ animate: false }));
+		// Track map position for share buttons and update hash
+		map.on('move', () => {
+			const center = map.getCenter();
+			currentCenter = { lng: center.lng, lat: center.lat };
+			currentZoom = map.getZoom();
+			// Update URL hash with current position and year
+			if (typeof window !== 'undefined') {
+				const yearId = allOrthos[currentIndex]?.id;
+				if (yearId) {
+					window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z,${yearId}`;
+				} else {
+					window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z`;
+				}
+			}
+		});
+
+		// Fit lorsque la carte est totalement "idle" (style + sources + layers prêts) - skip if we have hash position
+		map.once('idle', () => {
+			if (!initialPosition) {
+				fitToWallonia({ animate: false });
+			}
+		});
 
 		// Track container size to only refit on actual resize, not other events
 		let lastWidth = mapContainer.clientWidth;
@@ -461,29 +561,27 @@
 		});
 		ro.observe(mapContainer);
 
-		// Orientation & resize fenêtre (iOS/Android barre d'adresse, etc.)
-		const onWinResize = () => {
-			const newWidth = mapContainer.clientWidth;
-			const newHeight = mapContainer.clientHeight;
+		// Initial resize after a short delay to ensure container is properly sized
+		let resizeTimeout: number | null = null;
+		const throttledResize = () => {
+			if (resizeTimeout) return; // Already scheduled
 
-			if (newWidth !== lastWidth || newHeight !== lastHeight) {
-				lastWidth = newWidth;
-				lastHeight = newHeight;
-				fitToWallonia({ animate: false });
-			}
+			resizeTimeout = window.setTimeout(() => {
+				if (map) map.resize();
+				resizeTimeout = null;
+			}, 250);
 		};
 
-		// Initial resize after a short delay to ensure container is properly sized
 		setTimeout(() => map.resize(), 100);
 
-		window.addEventListener('resize', onWinResize);
-		window.addEventListener('orientationchange', onWinResize);
+		window.addEventListener('resize', throttledResize);
+		window.addEventListener('orientationchange', throttledResize);
 
 		return () => {
 			pause();
 			ro.disconnect();
-			window.removeEventListener('resize', onWinResize);
-			window.removeEventListener('orientationchange', onWinResize);
+			window.removeEventListener('resize', throttledResize);
+			window.removeEventListener('orientationchange', throttledResize);
 			map.remove();
 		};
 	});
@@ -493,6 +591,14 @@
 	<div class="map-container" bind:this={mapContainer}></div>
 
 	<div class="year-overlay">{allOrthos[currentIndex].displayYear}</div>
+
+	<div class="share-wrapper-traveltime">
+		<ShareButtons
+			lat={currentCenter.lat}
+			lng={currentCenter.lng}
+			zoom={currentZoom}
+		/>
+	</div>
 
 	<div class="playbar">
 		<div class="playbar-controls">
@@ -571,6 +677,17 @@
 		opacity: 0.8;
 		text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8);
 		pointer-events: none;
+	}
+
+	.share-wrapper-traveltime {
+		position: absolute;
+		bottom: 123px;
+		right: 22px;
+		z-index: 10;
+	}
+
+	.share-wrapper-traveltime :global(.share-buttons) {
+		position: static;
 	}
 
 	.playbar {
