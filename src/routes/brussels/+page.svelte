@@ -3,29 +3,27 @@
 </script>
 
 <div class="home-container">
-	<h1>Comparateur d'orthophotos Wallonie</h1>
-	<p>Comparez les images aériennes de 1971 à 2023</p>
+	<h1>Comparateur d'orthophotos Bruxelles</h1>
+	<p>Comparez les images aériennes de 1930 à 2024</p>
 
 	<div class="links">
-		<a href="{base}/lens" class="card">
+		<a href="{base}/brussels/lens" class="card">
 			<h2>Mode Loupe</h2>
-			<p>Comparez 1971 et 2023 avec une loupe circulaire</p>
+			<p>Comparez 1971 et 2024 avec une loupe circulaire</p>
 		</a>
 
-		<a href="{base}/timelapse" class="card">
+		<a href="{base}/brussels/timelapse" class="card">
 			<h2>Mode Avant-Après</h2>
 			<p>Comparez n'importe quelle année en mode avant-après</p>
 		</a>
 
-		<a href="{base}/traveltime" class="card">
+		<a href="{base}/brussels/traveltime" class="card">
 			<h2>Mode voyage dans le temps</h2>
 			<p>Voyagez à travers toutes les années de manière animée</p>
 		</a>
 	</div>
 
-	<div class="region-link">
-		<a href="{base}/brussels" class="brussels-link">Version Bruxelles →</a>
-	</div>
+	<a href="{base}/" class="back-link">← Retour à Wallonie</a>
 </div>
 
 <style>
@@ -99,18 +97,14 @@
 		font-size: 0.95rem;
 	}
 
-	.region-link {
+	.back-link {
 		margin-top: 2rem;
-	}
-
-	.brussels-link {
 		color: #3b82f6;
 		text-decoration: none;
 		font-size: 1rem;
-		font-weight: 500;
 	}
 
-	.brussels-link:hover {
+	.back-link:hover {
 		text-decoration: underline;
 	}
 

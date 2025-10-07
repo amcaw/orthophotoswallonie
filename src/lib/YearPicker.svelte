@@ -104,6 +104,11 @@
     padding: 5px;
   }
 
+  /* Use 3 columns when expanded */
+  .year-circles.expanded {
+    grid-template-columns: repeat(3, auto);
+  }
+
   .year-circle {
     display: flex;
     flex-direction: column;
@@ -194,6 +199,10 @@
       width: 20px;
       height: 20px;
       font-size: 16px;
+    }
+
+    .year-circles.expanded {
+      grid-template-columns: repeat(2, auto);
     }
   }
 </style>
