@@ -9,17 +9,17 @@
 	<div class="links">
 		<a href="{base}/lens" class="card">
 			<h2>Mode Loupe</h2>
-			<p>Comparez avec une loupe circulaire</p>
+			<p>Comparez 1971 et 2023 avec une loupe circulaire</p>
 		</a>
 
 		<a href="{base}/timelapse" class="card">
-			<h2>Mode Timelapse</h2>
-			<p>Comparez n'importe quelle année</p>
+			<h2>Mode Avant-Après</h2>
+			<p>Comparez n'importe quelle année en mode avant-après</p>
 		</a>
 
 		<a href="{base}/traveltime" class="card">
-			<h2>Travel in Time</h2>
-			<p>Voyagez à travers toutes les années</p>
+			<h2>Mode voyage dans le temps</h2>
+			<p>Voyagez à travers toutes les années de manière animée</p>
 		</a>
 	</div>
 </div>

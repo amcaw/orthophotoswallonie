@@ -695,7 +695,7 @@
 
 	@media (max-width: 768px) {
 		.year-overlay {
-			bottom: 100px;
+			bottom: 110px;
 			left: 10px;
 			font-size: 32px;
 		}
@@ -704,7 +704,7 @@
 			padding: 12px 16px;
 			left: 10px;
 			right: 10px;
-			bottom: 40px;
+			bottom: 50px;
 		}
 
 		.playbar-btn {

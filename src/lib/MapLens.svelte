@@ -478,4 +478,29 @@
 		width: 15px;
 		height: 15px;
 	}
+
+	/* Position controls higher to avoid attribution overlap */
+	:global(.maplibregl-ctrl-bottom-left) {
+		margin-bottom: 50px !important;
+	}
+
+	/* Mobile: smaller lens */
+	@media (max-width: 768px) {
+		.map-container.lens {
+			clip-path: circle(120px at center);
+		}
+
+		.lens-border {
+			width: 240px;
+			height: 240px;
+		}
+
+		.swap-button {
+			bottom: 180px;
+		}
+
+		:global(.maplibregl-ctrl-bottom-left) {
+			margin-bottom: 60px !important;
+		}
+	}
 </style>

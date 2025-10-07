@@ -775,6 +775,12 @@
 
 	/* Position bottom-left controls higher to avoid attribution overlap */
 	:global(.maplibregl-ctrl-bottom-left) {
-		margin-bottom: 40px !important;
+		margin-bottom: 50px !important;
+	}
+
+	@media (max-width: 768px) {
+		:global(.maplibregl-ctrl-bottom-left) {
+			margin-bottom: 60px !important;
+		}
 	}
 </style>
