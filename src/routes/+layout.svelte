@@ -1,5 +1,6 @@
 <script>
 	import favicon from '$lib/assets/favicon.svg';
+	import CookieConsent from '$lib/CookieConsent.svelte';
 
 	let { children } = $props();
 </script>
@@ -13,5 +14,7 @@
 		rel="stylesheet"
 	/>
 </svelte:head>
+
+<CookieConsent />
 
 {@render children?.()}

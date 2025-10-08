@@ -23,6 +23,12 @@
 		[4.482, 50.913]
 	];
 
+	// MaxBounds élargi pour permettre un meilleur affichage au zoom out
+	const brusselsMaxBounds: [[number, number], [number, number]] = [
+		[4.05, 50.65],
+		[4.68, 51.05]
+	];
+
 	// Helper to generate WMS tile URL based on ortho config
 	function getTileUrl(ortho: any): string {
 		const config = orthophotosBrusselsConfig;
@@ -299,15 +305,41 @@
 			if (map.getLayer(layerId)) map.moveLayer(layerId);
 		});
 
-		// Fade in all current group layers
-		currentGroup.layers.forEach((ortho: any) => {
-			const layerId = `${ortho.id}-layer`;
+		// Fade in all current group layers - wait for tiles to load for better reliability
+		const layerIds = currentGroup.layers.map((ortho: any) => `${ortho.id}-layer`);
+		let loadedCount = 0;
+		const totalLayers = layerIds.length;
 
-			if (map.getLayer(layerId)) {
-				map.setPaintProperty(layerId, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
-				map.setPaintProperty(layerId, 'raster-opacity', 1);
+		const showLayers = () => {
+			layerIds.forEach((layerId: string) => {
+				if (map.getLayer(layerId)) {
+					map.setPaintProperty(layerId, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
+					map.setPaintProperty(layerId, 'raster-opacity', 1);
+				}
+			});
+		};
+
+		const checkAndShow = () => {
+			loadedCount++;
+			if (loadedCount >= totalLayers) {
+				showLayers();
 			}
-		});
+		};
+
+		// Listen for source data events
+		const onSourceData = (e: any) => {
+			if (e.isSourceLoaded && e.sourceId && currentGroup.layers.some((o: any) => o.id === e.sourceId)) {
+				checkAndShow();
+			}
+		};
+
+		map.on('sourcedata', onSourceData);
+
+		// Fallback: show after timeout even if not all tiles loaded
+		setTimeout(() => {
+			map.off('sourcedata', onSourceData);
+			showLayers();
+		}, fadeMs > 0 ? fadeMs + 1000 : 1000);
 
 		// Clean up old layers after fade completes
 		if (fadeMs > 0) {
@@ -331,8 +363,14 @@
 	onMount(() => {
 		// Parse hash for shared position and year (#lat,lng,zoom,yearId)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
-		if (typeof window !== 'undefined' && window.location.hash) {
+
+		// Function to parse hash
+		const parseHash = () => {
+			if (typeof window === 'undefined') return;
+
 			const hash = window.location.hash.slice(1);
+			if (!hash) return;
+
 			const parts = hash.split(',');
 			if (parts.length >= 3) {
 				const lat = parseFloat(parts[0]);
@@ -351,7 +389,10 @@
 					}
 				}
 			}
-		}
+		};
+
+		// Parse hash immediately
+		parseHash();
 
 		const geocoderCache = new Map<string, any>();
 		const firstGroup = allOrthos[0];
@@ -390,6 +431,7 @@
 			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : {}),
 			maxZoom: 20,
 			minZoom: 9, // Will be dynamically adjusted by fitToBrussels
+			maxBounds: brusselsMaxBounds,
 			preserveDrawingBuffer: true,
 			attributionControl: false
 		} as any);

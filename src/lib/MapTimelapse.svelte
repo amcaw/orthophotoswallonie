@@ -125,7 +125,7 @@
 					type: 'raster',
 					source: srcId,
 					paint: {
-						'raster-opacity': 0,          // on positionne plus bas
+						'raster-opacity': 0,
 						'raster-fade-duration': 0,
 						'raster-resampling': 'nearest'
 					}
@@ -139,11 +139,44 @@
 			if (targetMap.getLayer(layerId)) targetMap.moveLayer(layerId);
 		});
 
-		// 4) Opacités : toutes à 1
-		group.layers.forEach((ortho: any) => {
-			const layerId = `${ortho.id}-layer`;
-			targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
-		});
+		// 4) Wait for tiles to load before showing - more reliable
+		const layerIds = group.layers.map((ortho: any) => `${ortho.id}-layer`);
+		let loadedCount = 0;
+		const totalLayers = layerIds.length;
+
+		const checkAndShow = () => {
+			loadedCount++;
+			if (loadedCount >= totalLayers) {
+				// All layers loaded, show them
+				layerIds.forEach((layerId: string) => {
+					if (targetMap.getLayer(layerId)) {
+						targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
+					}
+				});
+			}
+		};
+
+		// Listen for source data events
+		const onSourceData = (e: any) => {
+			if (e.isSourceLoaded && e.sourceId && group.layers.some((o: any) => o.id === e.sourceId)) {
+				checkAndShow();
+			}
+		};
+
+		targetMap.on('sourcedata', onSourceData);
+
+		// Fallback: show after timeout even if not all tiles loaded
+		setTimeout(() => {
+			targetMap.off('sourcedata', onSourceData);
+			layerIds.forEach((layerId: string) => {
+				if (targetMap.getLayer(layerId)) {
+					const currentOpacity = targetMap.getPaintProperty(layerId, 'raster-opacity');
+					if (currentOpacity === 0) {
+						targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
+					}
+				}
+			});
+		}, 2000);
 	}
 
 	function updateBeforeLayer(newGroupId: string) {
@@ -168,16 +201,28 @@
 		let isSyncing = false;
 		const geocoderCache = new Map<string, any>();
 
-		// Bounding box de la Wallonie
+		// Bounding box de la Wallonie (avec marge pour permettre un meilleur zoom out)
 		const walloniaBounds: [[number, number], [number, number]] = [
 			[2.75, 49.45], // Sud-Ouest (min lon, min lat)
 			[6.5, 50.85] // Nord-Est (max lon, max lat)
 		];
 
+		// MaxBounds élargi pour permettre un meilleur affichage au zoom out
+		const walloniaMaxBounds: [[number, number], [number, number]] = [
+			[2.0, 49.0],
+			[7.2, 51.3]
+		];
+
 		// Parse hash for shared position and years (#lat,lng,zoom,beforeYear,afterYear)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
-		if (typeof window !== 'undefined' && window.location.hash) {
+
+		// Function to parse hash
+		const parseHash = () => {
+			if (typeof window === 'undefined') return;
+
 			const hash = window.location.hash.slice(1);
+			if (!hash) return;
+
 			const parts = hash.split(',');
 			if (parts.length >= 3) {
 				const lat = parseFloat(parts[0]);
@@ -198,7 +243,10 @@
 					}
 				}
 			}
-		}
+		};
+
+		// Parse hash immediately
+		parseHash();
 
 		// Get orthophoto group configs
 		const beforeGroup = groupedOrthos.find((g) => g.id === selectedBeforeGroupId)!;
@@ -208,9 +256,10 @@
 		beforeMap = new maplibregl.Map({
 			container: beforeContainer,
 			style: { version: 8, sources: {}, layers: [] },
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: 0 } }),
-			minZoom: 8,
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } }),
+			minZoom: 7,
 			maxZoom: 17,
+			maxBounds: walloniaMaxBounds,
 			attributionControl: false
 		});
 
@@ -218,9 +267,10 @@
 		afterMap = new maplibregl.Map({
 			container: afterContainer,
 			style: { version: 8, sources: {}, layers: [] },
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: 0 } }),
-			minZoom: 8,
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } }),
+			minZoom: 7,
 			maxZoom: 17,
+			maxBounds: walloniaMaxBounds,
 			interactive: false,
 			attributionControl: false
 		});

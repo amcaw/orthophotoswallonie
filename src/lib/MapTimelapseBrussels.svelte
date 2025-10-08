@@ -115,7 +115,7 @@
 					type: 'raster',
 					source: srcId,
 					paint: {
-						'raster-opacity': 0,          // on positionne plus bas
+						'raster-opacity': 0,
 						'raster-fade-duration': 0,
 						'raster-resampling': 'nearest'
 					}
@@ -129,11 +129,44 @@
 			if (targetMap.getLayer(layerId)) targetMap.moveLayer(layerId);
 		});
 
-		// 4) Opacités : toutes à 1
-		group.layers.forEach((ortho: any) => {
-			const layerId = `${ortho.id}-layer`;
-			targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
-		});
+		// 4) Wait for tiles to load before showing - more reliable
+		const layerIds = group.layers.map((ortho: any) => `${ortho.id}-layer`);
+		let loadedCount = 0;
+		const totalLayers = layerIds.length;
+
+		const checkAndShow = () => {
+			loadedCount++;
+			if (loadedCount >= totalLayers) {
+				// All layers loaded, show them
+				layerIds.forEach((layerId: string) => {
+					if (targetMap.getLayer(layerId)) {
+						targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
+					}
+				});
+			}
+		};
+
+		// Listen for source data events
+		const onSourceData = (e: any) => {
+			if (e.isSourceLoaded && e.sourceId && group.layers.some((o: any) => o.id === e.sourceId)) {
+				checkAndShow();
+			}
+		};
+
+		targetMap.on('sourcedata', onSourceData);
+
+		// Fallback: show after timeout even if not all tiles loaded
+		setTimeout(() => {
+			targetMap.off('sourcedata', onSourceData);
+			layerIds.forEach((layerId: string) => {
+				if (targetMap.getLayer(layerId)) {
+					const currentOpacity = targetMap.getPaintProperty(layerId, 'raster-opacity');
+					if (currentOpacity === 0) {
+						targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
+					}
+				}
+			});
+		}, 2000);
 	}
 
 	function updateBeforeLayer(newGroupId: string) {
@@ -157,8 +190,14 @@
 	onMount(() => {
 		// Parse hash for shared position and years (#lat,lng,zoom,beforeYear,afterYear)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
-		if (typeof window !== 'undefined' && window.location.hash) {
+
+		// Function to parse hash
+		const parseHash = () => {
+			if (typeof window === 'undefined') return;
+
 			const hash = window.location.hash.slice(1);
+			if (!hash) return;
+
 			const parts = hash.split(',');
 			if (parts.length >= 3) {
 				const lat = parseFloat(parts[0]);
@@ -179,15 +218,24 @@
 					}
 				}
 			}
-		}
+		};
+
+		// Parse hash immediately
+		parseHash();
 
 		let isSyncing = false;
 		const geocoderCache = new Map<string, any>();
 
-		// Bounding box de Bruxelles
+		// Bounding box de Bruxelles (avec marge pour permettre un meilleur zoom out)
 		const brusselsBounds: [[number, number], [number, number]] = [
 			[4.243, 50.764],
 			[4.482, 50.913]
+		];
+
+		// MaxBounds élargi pour permettre un meilleur affichage au zoom out
+		const brusselsMaxBounds: [[number, number], [number, number]] = [
+			[4.05, 50.65],
+			[4.68, 51.05]
 		];
 
 		// Get orthophoto group configs
@@ -201,6 +249,7 @@
 			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 0 } }),
 			minZoom: 10,
 			maxZoom: 20,
+			maxBounds: brusselsMaxBounds,
 			attributionControl: false
 		});
 
@@ -211,6 +260,7 @@
 			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 0 } }),
 			minZoom: 10,
 			maxZoom: 20,
+			maxBounds: brusselsMaxBounds,
 			interactive: false,
 			attributionControl: false
 		});

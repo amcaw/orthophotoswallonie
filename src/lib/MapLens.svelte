@@ -22,6 +22,12 @@
 		[6.5, 50.85]
 	];
 
+	// MaxBounds élargi pour permettre un meilleur affichage au zoom out
+	const walloniaMaxBounds: [[number, number], [number, number]] = [
+		[2.0, 49.0],
+		[7.2, 51.3]
+	];
+
 	function toggleSwap() {
 		isSwapped = !isSwapped;
 	}
@@ -32,8 +38,14 @@
 
 		// Parse hash for shared position (#lat,lng,zoom)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
-		if (typeof window !== 'undefined' && window.location.hash) {
+
+		// Function to parse hash
+		const parseHash = () => {
+			if (typeof window === 'undefined') return;
+
 			const hash = window.location.hash.slice(1);
+			if (!hash) return;
+
 			const parts = hash.split(',');
 			if (parts.length === 3) {
 				const lat = parseFloat(parts[0]);
@@ -43,7 +55,10 @@
 					initialPosition = { center: [lng, lat], zoom };
 				}
 			}
-		}
+		};
+
+		// Parse hash immediately
+		parseHash();
 
 		// Get orthophoto configs
 		const beforeOrtho = orthophotosConfig.orthophotos.find(o => o.id === 'ortho-1971')!;
@@ -72,9 +87,10 @@
 					}
 				]
 			},
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: 20 } }),
-			minZoom: 8,
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } }),
+			minZoom: 7,
 			maxZoom: 17,
+			maxBounds: walloniaMaxBounds,
 			attributionControl: false
 		});
 
@@ -87,7 +103,7 @@
 					[beforeOrtho.id]: {
 						type: 'raster',
 						tiles: [
-							`${beforeOrtho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&f=image`
+							`${afterOrtho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&f=image`
 						],
 						tileSize: 256
 					}
@@ -101,10 +117,32 @@
 					}
 				]
 			},
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: 20 } }),
-			minZoom: 8,
+			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } }),
+			minZoom: 7,
 			maxZoom: 17,
+			maxBounds: walloniaMaxBounds,
 			attributionControl: false
+		});
+
+		// Wait for maps to load tiles before showing
+		let afterMapLoaded = false;
+		let beforeMapLoaded = false;
+
+		afterMap.once('idle', () => {
+			afterMapLoaded = true;
+		});
+
+		beforeMap.once('idle', () => {
+			beforeMapLoaded = true;
+		});
+
+		// Add error handling for tile loading
+		afterMap.on('error', (e) => {
+			console.warn('AfterMap tile loading error:', e);
+		});
+
+		beforeMap.on('error', (e) => {
+			console.warn('BeforeMap tile loading error:', e);
 		});
 
 		// Add controls to both maps so they're always visible

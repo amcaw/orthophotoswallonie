@@ -23,6 +23,12 @@
 		[6.5, 50.85]
 	];
 
+	// MaxBounds élargi pour permettre un meilleur affichage au zoom out
+	const walloniaMaxBounds: [[number, number], [number, number]] = [
+		[2.0, 49.0],
+		[7.2, 51.3]
+	];
+
 	// Padding responsive pour tenir compte de la playbar en bas et de l'overlay année en haut
 	function getResponsivePadding(container: HTMLElement) {
 		const w = container.clientWidth || window.innerWidth;
@@ -52,13 +58,21 @@
 
 		// Calculate dynamic minZoom based on viewport width to ensure map always fits
 		const w = mapContainer.clientWidth || window.innerWidth;
-		const dynamicMinZoom = w < 640 ? 6.5 : w < 1024 ? 7 : w < 1300 ? 7.5 : 8;
+		const dynamicMinZoom = w < 640 ? 5.5 : w < 1024 ? 6 : w < 1300 ? 6.5 : 7;
 
 		// Update map minZoom dynamically
 		map.setMinZoom(dynamicMinZoom);
 
+		// Add negative padding to zoom out more
+		const adjustedPadding = {
+			top: padding.top - 50,
+			right: padding.right - 50,
+			bottom: padding.bottom - 50,
+			left: padding.left - 50
+		};
+
 		map.fitBounds(walloniaBounds, {
-			padding,
+			padding: adjustedPadding,
 			duration: opts?.animate ? 400 : 0
 		});
 	}
@@ -312,15 +326,41 @@
 			if (map.getLayer(layerId)) map.moveLayer(layerId);
 		});
 
-		// Fade in all current group layers
-		currentGroup.layers.forEach((ortho: any) => {
-			const layerId = `${ortho.id}-layer`;
+		// Fade in all current group layers - wait for tiles to load for better reliability
+		const layerIds = currentGroup.layers.map((ortho: any) => `${ortho.id}-layer`);
+		let loadedCount = 0;
+		const totalLayers = layerIds.length;
 
-			if (map.getLayer(layerId)) {
-				map.setPaintProperty(layerId, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
-				map.setPaintProperty(layerId, 'raster-opacity', 1);
+		const showLayers = () => {
+			layerIds.forEach((layerId: string) => {
+				if (map.getLayer(layerId)) {
+					map.setPaintProperty(layerId, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
+					map.setPaintProperty(layerId, 'raster-opacity', 1);
+				}
+			});
+		};
+
+		const checkAndShow = () => {
+			loadedCount++;
+			if (loadedCount >= totalLayers) {
+				showLayers();
 			}
-		});
+		};
+
+		// Listen for source data events
+		const onSourceData = (e: any) => {
+			if (e.isSourceLoaded && e.sourceId && currentGroup.layers.some((o: any) => o.id === e.sourceId)) {
+				checkAndShow();
+			}
+		};
+
+		map.on('sourcedata', onSourceData);
+
+		// Fallback: show after timeout even if not all tiles loaded
+		setTimeout(() => {
+			map.off('sourcedata', onSourceData);
+			showLayers();
+		}, fadeMs > 0 ? fadeMs + 1000 : 1000);
 
 		// Clean up old layers after fade completes
 		if (fadeMs > 0) {
@@ -347,8 +387,14 @@
 
 		// Parse hash for shared position and year (#lat,lng,zoom,yearId)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
-		if (typeof window !== 'undefined' && window.location.hash) {
+
+		// Function to parse hash
+		const parseHash = () => {
+			if (typeof window === 'undefined') return;
+
 			const hash = window.location.hash.slice(1);
+			if (!hash) return;
+
 			const parts = hash.split(',');
 			if (parts.length >= 3) {
 				const lat = parseFloat(parts[0]);
@@ -367,7 +413,10 @@
 					}
 				}
 			}
-		}
+		};
+
+		// Parse hash immediately
+		parseHash();
 
 		const initialSources: any = {};
 		const initialLayers: any[] = [];
@@ -405,7 +454,8 @@
 			// Ne pas passer bounds ici (certains navigateurs mobile font un fit trop tôt)
 			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : {}),
 			maxZoom: 16,
-			minZoom: 6, // Will be dynamically adjusted by fitToWallonia
+			minZoom: 5, // Will be dynamically adjusted by fitToWallonia
+			maxBounds: walloniaMaxBounds,
 			preserveDrawingBuffer: true,
 			attributionControl: false
 		} as any);
