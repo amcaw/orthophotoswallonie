@@ -360,16 +360,16 @@
 		}
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		// Parse hash for shared position and year (#lat,lng,zoom,yearId)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
 
 		// Function to parse hash
 		const parseHash = () => {
-			if (typeof window === 'undefined') return;
+			if (typeof window === 'undefined') return false;
 
 			const hash = window.location.hash.slice(1);
-			if (!hash) return;
+			if (!hash) return false;
 
 			const parts = hash.split(',');
 			if (parts.length >= 3) {
@@ -378,21 +378,26 @@
 				const zoom = parseFloat(parts[2].replace('z', ''));
 				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
 					initialPosition = { center: [lng, lat], zoom };
-				}
-				// Restore year selection if provided
-				if (parts.length >= 4) {
-					const yearId = parts[3];
-					const yearIndex = allOrthos.findIndex(g => g.id === yearId);
-					if (yearIndex !== -1) {
-						currentIndex = yearIndex;
-						progressPercent = (yearIndex / (allOrthos.length - 1)) * 100;
+					// Restore year selection if provided
+					if (parts.length >= 4) {
+						const yearId = parts[3];
+						const yearIndex = allOrthos.findIndex(g => g.id === yearId);
+						if (yearIndex !== -1) {
+							currentIndex = yearIndex;
+							progressPercent = (yearIndex / (allOrthos.length - 1)) * 100;
+						}
 					}
+					return true;
 				}
 			}
+			return false;
 		};
 
-		// Parse hash immediately
-		parseHash();
+		// Try parsing hash with retries for production reliability
+		if (!parseHash()) {
+			await new Promise(resolve => setTimeout(resolve, 10));
+			parseHash();
+		}
 
 		const geocoderCache = new Map<string, any>();
 		const firstGroup = allOrthos[0];

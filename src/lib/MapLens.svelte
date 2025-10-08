@@ -32,7 +32,7 @@
 		isSwapped = !isSwapped;
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		let isSyncing = false;
 		const geocoderCache = new Map<string, any>();
 
@@ -41,10 +41,10 @@
 
 		// Function to parse hash
 		const parseHash = () => {
-			if (typeof window === 'undefined') return;
+			if (typeof window === 'undefined') return false;
 
 			const hash = window.location.hash.slice(1);
-			if (!hash) return;
+			if (!hash) return false;
 
 			const parts = hash.split(',');
 			if (parts.length === 3) {
@@ -53,12 +53,17 @@
 				const zoom = parseFloat(parts[2].replace('z', ''));
 				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
 					initialPosition = { center: [lng, lat], zoom };
+					return true;
 				}
 			}
+			return false;
 		};
 
-		// Parse hash immediately
-		parseHash();
+		// Try parsing hash with retries for production reliability
+		if (!parseHash()) {
+			await new Promise(resolve => setTimeout(resolve, 10));
+			parseHash();
+		}
 
 		// Get orthophoto configs
 		const beforeOrtho = orthophotosConfig.orthophotos.find(o => o.id === 'ortho-1971')!;
