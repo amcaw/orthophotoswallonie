@@ -176,6 +176,13 @@
 
 		addYearGroupToMap(beforeMap, newGroup);
 		selectedBeforeGroupId = newGroupId;
+
+		// Update hash immediately
+		if (typeof window !== 'undefined' && beforeMap) {
+			const center = beforeMap.getCenter();
+			const zoom = beforeMap.getZoom();
+			window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${selectedBeforeGroupId},${selectedAfterGroupId}`;
+		}
 	}
 
 	function updateAfterLayer(newGroupId: string) {
@@ -185,6 +192,13 @@
 
 		addYearGroupToMap(afterMap, newGroup);
 		selectedAfterGroupId = newGroupId;
+
+		// Update hash immediately
+		if (typeof window !== 'undefined' && beforeMap) {
+			const center = beforeMap.getCenter();
+			const zoom = beforeMap.getZoom();
+			window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${selectedBeforeGroupId},${selectedAfterGroupId}`;
+		}
 	}
 
 	onMount(async () => {

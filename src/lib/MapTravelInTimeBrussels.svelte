@@ -251,6 +251,16 @@
 		currentIndex = index;
 		updateLayer();
 		animateProgress();
+
+		// Update hash immediately
+		if (typeof window !== 'undefined' && map) {
+			const center = map.getCenter();
+			const zoom = map.getZoom();
+			const yearId = allOrthos[index]?.id;
+			if (yearId) {
+				window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${yearId}`;
+			}
+		}
 	}
 
 
