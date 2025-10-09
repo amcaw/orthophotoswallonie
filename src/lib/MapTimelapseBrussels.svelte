@@ -56,6 +56,9 @@
 		return s;
 	}
 
+	// Track active tile waits so we can cancel them during map movement
+	let activeTileWaits = new Set<() => void>();
+
 	// Wait for tiles in current viewport to be loaded
 	function waitForTiles(map: maplibregl.Map, layerIds: string[], timeout = 3000): Promise<void> {
 		return new Promise((resolve) => {
@@ -64,9 +67,19 @@
 				if (!done) {
 					done = true;
 					cleanup();
+					activeTileWaits.delete(cancel);
 					resolve();
 				}
 			};
+
+			// Allow external cancellation (e.g., when user starts moving)
+			const cancel = () => {
+				if (!done) {
+					console.log('Tile wait cancelled - user is interacting');
+					finish();
+				}
+			};
+			activeTileWaits.add(cancel);
 
 			const onIdle = () => {
 				const sourcesReady = layerIds.every((lid) => {
@@ -77,13 +90,21 @@
 				if (sourcesReady && map.areTilesLoaded()) finish();
 			};
 
+			// Shorter timeout and also finish on movestart to avoid blocking navigation
+			const onMoveStart = () => {
+				console.log('Map movement detected - finishing tile wait early');
+				finish();
+			};
+
 			const to = setTimeout(finish, timeout);
 			const cleanup = () => {
 				map.off('idle', onIdle);
+				map.off('movestart', onMoveStart);
 				clearTimeout(to);
 			};
 
 			map.on('idle', onIdle);
+			map.on('movestart', onMoveStart);
 			// Try immediately if already ready
 			onIdle();
 		});
