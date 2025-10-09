@@ -246,44 +246,68 @@
 		}
 	}
 
+	// Track pending layer changes to prevent race conditions
+	const pendingLayerChanges = new WeakMap<maplibregl.Map, Promise<void>>();
+
 	// Preload and cross-fade to new year without showing blank canvas
 	async function addYearGroupToMap(targetMap: maplibregl.Map, group: any) {
-		const activeSet = getActiveSet(targetMap);
-		const previousIds = [...activeSet];
+		// Wait for any pending layer change to complete first
+		const existing = pendingLayerChanges.get(targetMap);
+		if (existing) {
+			console.log('Waiting for previous layer change to complete...');
+			await existing;
+		}
 
-		// 1) Add/ensure all sublayers (opacity 0)
-		const newLayerIds = group.layers.map((ortho: any) => ensureRaster(targetMap, ortho, 512));
+		// Create a promise for this layer change
+		const changePromise = (async () => {
+			const activeSet = getActiveSet(targetMap);
+			const previousIds = [...activeSet];
 
-		// 2) Order layers (bottom to top)
-		newLayerIds.forEach((lid) => targetMap.moveLayer(lid));
+			// 1) Add/ensure all sublayers (opacity 0)
+			const newLayerIds = group.layers.map((ortho: any) => ensureRaster(targetMap, ortho, 512));
 
-		// 3) Wait for tiles in current viewport to be ready
-		await waitForTiles(targetMap, newLayerIds, 3000);
-
-		// 4) Cross-fade: new to 1, old to 0 (no gap)
-		newLayerIds.forEach((lid) => {
-			if (targetMap.getLayer(lid)) {
-				targetMap.setPaintProperty(lid, 'raster-opacity', 1);
-			}
-		});
-		previousIds.forEach((lid) => {
-			if (targetMap.getLayer(lid)) {
-				targetMap.setPaintProperty(lid, 'raster-opacity', 0);
-			}
-		});
-
-		// 5) Deferred cleanup (after fade)
-		setTimeout(() => {
-			previousIds.forEach((lid) => {
-				if (!newLayerIds.includes(lid)) {
-					const srcId = lid.replace(/-layer$/, '');
-					if (targetMap.getLayer(lid)) targetMap.removeLayer(lid);
-					if (targetMap.getSource(srcId)) targetMap.removeSource(srcId);
-					activeSet.delete(lid);
-				}
+			// 2) Order layers (bottom to top) - do this without blocking
+			requestAnimationFrame(() => {
+				newLayerIds.forEach((lid) => {
+					if (targetMap.getLayer(lid)) targetMap.moveLayer(lid);
+				});
 			});
-			newLayerIds.forEach((lid) => activeSet.add(lid));
-		}, 400);
+
+			// 3) Wait for tiles - but don't block navigation
+			// Reduce timeout to 1500ms so it doesn't wait too long
+			await waitForTiles(targetMap, newLayerIds, 1500);
+
+			// 4) Cross-fade: new to 1, old to 0 (no gap)
+			requestAnimationFrame(() => {
+				newLayerIds.forEach((lid) => {
+					if (targetMap.getLayer(lid)) {
+						targetMap.setPaintProperty(lid, 'raster-opacity', 1);
+					}
+				});
+				previousIds.forEach((lid) => {
+					if (targetMap.getLayer(lid)) {
+						targetMap.setPaintProperty(lid, 'raster-opacity', 0);
+					}
+				});
+			});
+
+			// 5) Deferred cleanup (after fade)
+			setTimeout(() => {
+				previousIds.forEach((lid) => {
+					if (!newLayerIds.includes(lid)) {
+						const srcId = lid.replace(/-layer$/, '');
+						if (targetMap.getLayer(lid)) targetMap.removeLayer(lid);
+						if (targetMap.getSource(srcId)) targetMap.removeSource(srcId);
+						activeSet.delete(lid);
+					}
+				});
+				newLayerIds.forEach((lid) => activeSet.add(lid));
+			}, 400);
+		})();
+
+		pendingLayerChanges.set(targetMap, changePromise);
+		await changePromise;
+		pendingLayerChanges.delete(targetMap);
 	}
 
 	// Reference to updateHash function (will be set in onMount)
