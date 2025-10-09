@@ -997,7 +997,7 @@
 
 	@media (max-width: 768px) {
 		:global(.maplibregl-ctrl-geocoder) {
-			width: min(400px, calc(100vw - 80px));
+			width: calc(100vw - 20px);
 		}
 	}
 
