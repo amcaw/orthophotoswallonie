@@ -15,6 +15,7 @@
 	let afterMap: maplibregl.Map;
 	let sliderValue = 50;
 	let isDragging = false;
+	let dragTimeoutId: number | null = null;
 
 	// Slider optimization with RAF
 	let sliderRAF: number | null = null;
@@ -131,10 +132,26 @@
 	let selectedBeforeGroupId = groupedOrthos[0].id;
 	let selectedAfterGroupId = groupedOrthos[groupedOrthos.length - 1].id;
 
+	// Safety function to reset dragging state
+	function stopDragging() {
+		isDragging = false;
+		if (dragTimeoutId !== null) {
+			clearTimeout(dragTimeoutId);
+			dragTimeoutId = null;
+		}
+	}
+
 	function handleMouseDown(e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
 		isDragging = true;
+
+		// Safety timeout: force reset after 10 seconds if mouseup never fires
+		if (dragTimeoutId !== null) clearTimeout(dragTimeoutId);
+		dragTimeoutId = window.setTimeout(() => {
+			console.warn('Drag timeout - forcing reset');
+			stopDragging();
+		}, 10000);
 	}
 
 	function handleMouseMove(e: MouseEvent) {
@@ -147,13 +164,20 @@
 	}
 
 	function handleMouseUp() {
-		isDragging = false;
+		stopDragging();
 	}
 
 	function handleTouchStart(_e: TouchEvent) {
 		// Only preventDefault on the slider handle itself, not globally
 		// The CSS touch-action: none on the handle will prevent default scrolling
 		isDragging = true;
+
+		// Safety timeout: force reset after 10 seconds if touchend/touchcancel never fires
+		if (dragTimeoutId !== null) clearTimeout(dragTimeoutId);
+		dragTimeoutId = window.setTimeout(() => {
+			console.warn('Touch timeout - forcing reset');
+			stopDragging();
+		}, 10000);
 	}
 
 	function handleTouchMove(e: TouchEvent) {
@@ -161,18 +185,32 @@
 		// DO NOT preventDefault here - it blocks map touch interactions
 		// Only update slider position when actively dragging
 
+		// Safety check: if no touches, stop dragging
+		if (!e.touches || e.touches.length === 0) {
+			stopDragging();
+			return;
+		}
+
 		const rect = mapWrapper.getBoundingClientRect();
 		const x = e.touches[0].clientX - rect.left;
 		updateSliderValue(Math.max(0, Math.min(100, (x / rect.width) * 100)));
 	}
 
 	function handleTouchEnd() {
-		isDragging = false;
+		stopDragging();
 	}
 
 	function handleTouchCancel() {
 		// Handle touch interruptions (browser gestures, etc.)
-		isDragging = false;
+		stopDragging();
+	}
+
+	// Handle visibility changes (tab switching, app backgrounding)
+	function handleVisibilityChange() {
+		if (document.hidden && isDragging) {
+			console.log('Page hidden - resetting drag state');
+			stopDragging();
+		}
 	}
 
 	// Preload and cross-fade to new year without showing blank canvas
@@ -761,9 +799,23 @@
 
 		window.addEventListener('hashchange', handleHashChange);
 
+		// Listen for visibility changes to reset stuck states
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		// Safety: periodic check to ensure isSyncing doesn't get stuck
+		const syncCheckInterval = setInterval(() => {
+			if (isSyncing) {
+				console.warn('isSyncing stuck - forcing reset');
+				isSyncing = false;
+			}
+		}, 5000);
+
 		return () => {
 			window.removeEventListener('resize', handleResize);
 			window.removeEventListener('hashchange', handleHashChange);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			clearInterval(syncCheckInterval);
+			stopDragging(); // Clean up any active drag state
 			beforeMap.remove();
 			afterMap.remove();
 		};
