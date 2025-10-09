@@ -93,6 +93,16 @@
 			style: {
 				version: 8,
 				sources: {
+					'positron': {
+						type: 'raster',
+						tiles: [
+							'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+							'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+							'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+						],
+						tileSize: 256,
+						attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
+					},
 					[afterOrtho.id]: {
 						type: 'raster',
 						tiles: [getTileUrl(afterOrtho)],
@@ -101,10 +111,21 @@
 				},
 				layers: [
 					{
+						id: 'positron-layer',
+						type: 'raster',
+						source: 'positron',
+						paint: {
+							'raster-opacity': 1
+						}
+					},
+					{
 						id: `${afterOrtho.id}-layer`,
 						type: 'raster',
 						source: afterOrtho.id,
-						paint: {}
+						paint: {
+							'raster-opacity': 1,
+							'raster-fade-duration': 300
+						}
 					}
 				]
 			},
@@ -115,12 +136,22 @@
 			attributionControl: false
 		});
 
-		// Before map (2004) - visible dans le cercle
+		// Before map (1971) - visible dans le cercle
 		beforeMap = new maplibregl.Map({
 			container: beforeContainer,
 			style: {
 				version: 8,
 				sources: {
+					'positron': {
+						type: 'raster',
+						tiles: [
+							'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+							'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+							'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+						],
+						tileSize: 256,
+						attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
+					},
 					[beforeOrtho.id]: {
 						type: 'raster',
 						tiles: [getTileUrl(beforeOrtho)],
@@ -129,10 +160,21 @@
 				},
 				layers: [
 					{
+						id: 'positron-layer',
+						type: 'raster',
+						source: 'positron',
+						paint: {
+							'raster-opacity': 1
+						}
+					},
+					{
 						id: `${beforeOrtho.id}-layer`,
 						type: 'raster',
 						source: beforeOrtho.id,
-						paint: {}
+						paint: {
+							'raster-opacity': 1,
+							'raster-fade-duration': 300
+						}
 					}
 				]
 			},
@@ -141,18 +183,6 @@
 			maxZoom: 20,
 			maxBounds: brusselsMaxBounds,
 			attributionControl: false
-		});
-
-		// Wait for maps to load tiles before showing
-		let afterMapLoaded = false;
-		let beforeMapLoaded = false;
-
-		afterMap.once('idle', () => {
-			afterMapLoaded = true;
-		});
-
-		beforeMap.once('idle', () => {
-			beforeMapLoaded = true;
 		});
 
 		// Add error handling for tile loading
@@ -170,7 +200,7 @@
 
 		// Add custom attribution
 		afterMap.addControl(new maplibregl.AttributionControl({
-			customAttribution: 'Made by <a href="https://bsky.app/profile/amcaw.bsky.social" target="_blank">@amcaw</a> - Creative Commons Attribution (CC-BY) - <a href="https://be.brussels/en/about-region/structure-and-organisations/administrations-and-institutions-region/paradigm" target="_blank">Paradigm</a> - <a href="https://bruciel.brussels/" target="_blank">Bruciel</a>'
+			customAttribution: 'Made by <a href="https://bsky.app/profile/amcaw.bsky.social" target="_blank">@amcaw</a> - Orthophotos: <a href="https://be.brussels/en/about-region/structure-and-organisations/administrations-and-institutions-region/paradigm" target="_blank">Paradigm</a> & <a href="https://bruciel.brussels/" target="_blank">Bruciel</a> (CC-BY)'
 		}), 'bottom-right');
 
 		// Add geocoder for address search to both maps
@@ -553,6 +583,7 @@
 	.map-container.lens {
 		clip-path: circle(200px at center);
 		z-index: 2;
+		pointer-events: none;
 	}
 
 	.map-container:not(.lens) {

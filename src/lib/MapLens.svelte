@@ -112,7 +112,7 @@
 					[beforeOrtho.id]: {
 						type: 'raster',
 						tiles: [
-							`${afterOrtho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&f=image`
+							`${beforeOrtho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&f=image`
 						],
 						tileSize: 256
 					}
@@ -131,18 +131,6 @@
 			maxZoom: 17,
 			maxBounds: walloniaMaxBounds,
 			attributionControl: false
-		});
-
-		// Wait for maps to load tiles before showing
-		let afterMapLoaded = false;
-		let beforeMapLoaded = false;
-
-		afterMap.once('idle', () => {
-			afterMapLoaded = true;
-		});
-
-		beforeMap.once('idle', () => {
-			beforeMapLoaded = true;
 		});
 
 		// Add error handling for tile loading
@@ -442,20 +430,30 @@
 		afterMap.on('move', () => {
 			if (!isSyncing) {
 				syncMaps(afterMap, beforeMap);
-			}
-			// Update position for share buttons and hash
-			const center = afterMap.getCenter();
-			currentCenter = { lng: center.lng, lat: center.lat };
-			currentZoom = afterMap.getZoom();
-			// Update URL hash with current position
-			if (typeof window !== 'undefined') {
-				window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z`;
+
+				// Update position for share buttons and hash
+				const center = afterMap.getCenter();
+				currentCenter = { lng: center.lng, lat: center.lat };
+				currentZoom = afterMap.getZoom();
+				// Update URL hash with current position
+				if (typeof window !== 'undefined') {
+					window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z`;
+				}
 			}
 		});
 
 		beforeMap.on('move', () => {
 			if (!isSyncing) {
 				syncMaps(beforeMap, afterMap);
+
+				// Update position for share buttons and hash
+				const center = beforeMap.getCenter();
+				currentCenter = { lng: center.lng, lat: center.lat };
+				currentZoom = beforeMap.getZoom();
+				// Update URL hash with current position
+				if (typeof window !== 'undefined') {
+					window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z`;
+				}
 			}
 		});
 
@@ -537,6 +535,7 @@
 	.map-container.lens {
 		clip-path: circle(200px at center);
 		z-index: 2;
+		pointer-events: none;
 	}
 
 	.map-container:not(.lens) {

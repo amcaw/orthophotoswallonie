@@ -16,21 +16,107 @@
 	let sliderValue = 50;
 	let isDragging = false;
 
+	// Slider optimization with RAF
+	let sliderRAF: number | null = null;
+	function updateSliderValue(value: number) {
+		sliderValue = value;
+		if (sliderRAF) cancelAnimationFrame(sliderRAF);
+		sliderRAF = requestAnimationFrame(() => {
+			if (afterMap) afterMap.triggerRepaint();
+		});
+	}
+
 	// Track map position for sharing
 	let currentCenter: { lng: number; lat: number } = { lng: 4.35, lat: 50.85 };
 	let currentZoom: number = 11;
 
 	// Helper to generate WMS tile URL based on ortho config
-	function getTileUrl(ortho: any): string {
+	function getTileUrl(ortho: any, tileSize = 512): string {
 		const config = orthophotosBrusselsConfig;
 
 		// Check if this is an EPSG:31370 layer (urban-brussels service)
 		if (ortho.service === 'urban-brussels' && ortho.crs === 'EPSG:31370') {
-			return `${config.wmsUrbanBrusselsUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=${ortho.layer}&CRS=EPSG:3857&STYLES=&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}`;
+			return `${config.wmsUrbanBrusselsUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=${ortho.layer}&CRS=EPSG:3857&STYLES=&WIDTH=${tileSize}&HEIGHT=${tileSize}&BBOX={bbox-epsg-3857}`;
 		}
 
 		// Regular EPSG:3857 layer
-		return `${config.wmsBaseUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=${ortho.layer}&CRS=EPSG:3857&STYLES=&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}`;
+		return `${config.wmsBaseUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=${ortho.layer}&CRS=EPSG:3857&STYLES=&WIDTH=${tileSize}&HEIGHT=${tileSize}&BBOX={bbox-epsg-3857}`;
+	}
+
+	// --- Helpers for active layer tracking ---
+	const activeLayerIdsByMap = new WeakMap<maplibregl.Map, Set<string>>();
+
+	function getActiveSet(m: maplibregl.Map) {
+		let s = activeLayerIdsByMap.get(m);
+		if (!s) {
+			s = new Set<string>();
+			activeLayerIdsByMap.set(m, s);
+		}
+		return s;
+	}
+
+	// Wait for tiles in current viewport to be loaded
+	function waitForTiles(map: maplibregl.Map, layerIds: string[], timeout = 3000): Promise<void> {
+		return new Promise((resolve) => {
+			let done = false;
+			const finish = () => {
+				if (!done) {
+					done = true;
+					cleanup();
+					resolve();
+				}
+			};
+
+			const onIdle = () => {
+				const sourcesReady = layerIds.every((lid) => {
+					const srcId = lid.replace(/-layer$/, '');
+					const source = map.getSource(srcId);
+					return !!source && map.isSourceLoaded(srcId);
+				});
+				if (sourcesReady && map.areTilesLoaded()) finish();
+			};
+
+			const to = setTimeout(finish, timeout);
+			const cleanup = () => {
+				map.off('idle', onIdle);
+				clearTimeout(to);
+			};
+
+			map.on('idle', onIdle);
+			// Try immediately if already ready
+			onIdle();
+		});
+	}
+
+	// Create (if needed) source/layer raster, with opacity 0 and visible
+	function ensureRaster(map: maplibregl.Map, ortho: any, tileSize = 512) {
+		const srcId = ortho.id;
+		const layerId = `${ortho.id}-layer`;
+
+		if (!map.getSource(srcId)) {
+			map.addSource(srcId, {
+				type: 'raster',
+				tiles: [getTileUrl(ortho, tileSize)],
+				tileSize,
+				maxzoom: 20
+			});
+		}
+
+		if (!map.getLayer(layerId)) {
+			map.addLayer({
+				id: layerId,
+				type: 'raster',
+				source: srcId,
+				layout: { visibility: 'visible' },
+				paint: {
+					'raster-opacity': 0, // Start hidden
+					'raster-fade-duration': 300, // Nice fade
+					'raster-resampling': 'nearest'
+				}
+			});
+		}
+
+		return layerId;
 	}
 
 	// No grouping needed - each entry is already a single year
@@ -57,14 +143,14 @@
 
 		const rect = mapWrapper.getBoundingClientRect();
 		const x = e.clientX - rect.left;
-		sliderValue = Math.max(0, Math.min(100, (x / rect.width) * 100));
+		updateSliderValue(Math.max(0, Math.min(100, (x / rect.width) * 100)));
 	}
 
 	function handleMouseUp() {
 		isDragging = false;
 	}
 
-	function handleTouchStart(e: TouchEvent) {
+	function handleTouchStart(_e: TouchEvent) {
 		// Only preventDefault on the slider handle itself, not globally
 		// The CSS touch-action: none on the handle will prevent default scrolling
 		isDragging = true;
@@ -77,7 +163,7 @@
 
 		const rect = mapWrapper.getBoundingClientRect();
 		const x = e.touches[0].clientX - rect.left;
-		sliderValue = Math.max(0, Math.min(100, (x / rect.width) * 100));
+		updateSliderValue(Math.max(0, Math.min(100, (x / rect.width) * 100)));
 	}
 
 	function handleTouchEnd() {
@@ -89,90 +175,44 @@
 		isDragging = false;
 	}
 
-	function addYearGroupToMap(targetMap: maplibregl.Map, group: any) {
-		// 1) Nettoyer toute couche existante (sécurité)
-		const style = targetMap.getStyle();
-		if (style?.layers) {
-			for (const l of style.layers) {
-				if (!l.id.endsWith('-layer')) continue;
-				if (targetMap.getLayer(l.id)) targetMap.removeLayer(l.id);
-				const srcId = (l as any).source;
-				if (srcId && targetMap.getSource(srcId)) targetMap.removeSource(srcId);
+	// Preload and cross-fade to new year without showing blank canvas
+	async function addYearGroupToMap(targetMap: maplibregl.Map, group: any) {
+		const activeSet = getActiveSet(targetMap);
+		const previousIds = [...activeSet];
+
+		// 1) Add/ensure all sublayers (opacity 0)
+		const newLayerIds = group.layers.map((ortho: any) => ensureRaster(targetMap, ortho, 512));
+
+		// 2) Order layers (bottom to top)
+		newLayerIds.forEach((lid: string) => targetMap.moveLayer(lid));
+
+		// 3) Wait for tiles in current viewport to be ready
+		await waitForTiles(targetMap, newLayerIds, 3000);
+
+		// 4) Cross-fade: new to 1, old to 0 (no gap)
+		newLayerIds.forEach((lid: string) => {
+			if (targetMap.getLayer(lid)) {
+				targetMap.setPaintProperty(lid, 'raster-opacity', 1);
 			}
-		}
-
-		// 2) Ajouter toutes les sous-couches de l'année
-		group.layers.forEach((ortho: any) => {
-			const srcId = ortho.id;
-			const layerId = `${ortho.id}-layer`;
-
-			if (!targetMap.getSource(srcId)) {
-				targetMap.addSource(srcId, {
-					type: 'raster',
-					tiles: [getTileUrl(ortho)],
-					tileSize: 256,
-					maxzoom: 20
-				});
-			}
-
-			if (!targetMap.getLayer(layerId)) {
-				targetMap.addLayer({
-					id: layerId,
-					type: 'raster',
-					source: srcId,
-					paint: {
-						'raster-opacity': 0,
-						'raster-fade-duration': 0,
-						'raster-resampling': 'nearest'
-					}
-				});
+		});
+		previousIds.forEach((lid: string) => {
+			if (targetMap.getLayer(lid)) {
+				targetMap.setPaintProperty(lid, 'raster-opacity', 0);
 			}
 		});
 
-		// 3) Ordonner les couches : index 0 = bas, dernier = au-dessus
-		group.layers.forEach((ortho: any) => {
-			const layerId = `${ortho.id}-layer`;
-			if (targetMap.getLayer(layerId)) targetMap.moveLayer(layerId);
-		});
-
-		// 4) Wait for tiles to load before showing - more reliable
-		const layerIds = group.layers.map((ortho: any) => `${ortho.id}-layer`);
-		let loadedCount = 0;
-		const totalLayers = layerIds.length;
-
-		const checkAndShow = () => {
-			loadedCount++;
-			if (loadedCount >= totalLayers) {
-				// All layers loaded, show them
-				layerIds.forEach((layerId: string) => {
-					if (targetMap.getLayer(layerId)) {
-						targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
-					}
-				});
-			}
-		};
-
-		// Listen for source data events
-		const onSourceData = (e: any) => {
-			if (e.isSourceLoaded && e.sourceId && group.layers.some((o: any) => o.id === e.sourceId)) {
-				checkAndShow();
-			}
-		};
-
-		targetMap.on('sourcedata', onSourceData);
-
-		// Fallback: show after timeout even if not all tiles loaded
+		// 5) Deferred cleanup (after fade)
 		setTimeout(() => {
-			targetMap.off('sourcedata', onSourceData);
-			layerIds.forEach((layerId: string) => {
-				if (targetMap.getLayer(layerId)) {
-					const currentOpacity = targetMap.getPaintProperty(layerId, 'raster-opacity');
-					if (currentOpacity === 0) {
-						targetMap.setPaintProperty(layerId, 'raster-opacity', 1);
-					}
+			previousIds.forEach((lid: string) => {
+				if (!newLayerIds.includes(lid)) {
+					const srcId = lid.replace(/-layer$/, '');
+					if (targetMap.getLayer(lid)) targetMap.removeLayer(lid);
+					if (targetMap.getSource(srcId)) targetMap.removeSource(srcId);
+					activeSet.delete(lid);
 				}
 			});
-		}, 2000);
+			newLayerIds.forEach((lid: string) => activeSet.add(lid));
+		}, 400);
 	}
 
 	// Reference to updateHash function (will be set in onMount)
@@ -206,7 +246,7 @@
 		}
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		// Parse hash for shared position and years (#lat,lng,zoom,beforeYear,afterYear)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
 
@@ -242,11 +282,7 @@
 		};
 
 		// Try parsing hash with retries for production reliability
-		if (!parseHash()) {
-			// Wait a tick and try again
-			await new Promise(resolve => setTimeout(resolve, 10));
-			parseHash();
-		}
+		parseHash();
 
 		let isSyncing = false;
 		const geocoderCache = new Map<string, any>();
@@ -267,28 +303,94 @@
 		const beforeGroup = groupedOrthos.find((g) => g.id === selectedBeforeGroupId)!;
 		const afterGroup = groupedOrthos.find((g) => g.id === selectedAfterGroupId)!;
 
+		// Base style with Positron layer
+		const baseStyle = {
+			version: 8 as const,
+			sources: {
+				'positron': {
+					type: 'raster' as const,
+					tiles: [
+						'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+						'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+						'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+					],
+					tileSize: 256,
+					attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
+				}
+			},
+			layers: [
+				{
+					id: 'positron-layer',
+					type: 'raster' as const,
+					source: 'positron',
+					paint: {
+						'raster-opacity': 1
+					}
+				}
+			]
+		};
+
 		// Before map (left side)
-		beforeMap = new maplibregl.Map({
+		const beforeMapOptions: any = {
 			container: beforeContainer,
-			style: { version: 8, sources: {}, layers: [] },
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 0 } }),
+			style: baseStyle as any,
 			minZoom: 10,
 			maxZoom: 20,
 			maxBounds: brusselsMaxBounds,
-			attributionControl: false
-		});
+			attributionControl: false,
+			renderWorldCopies: false, // Avoid requests outside bounds
+			fadeDuration: 0 // We handle fading per layer
+		};
+		if (initialPosition) {
+			beforeMapOptions.center = (initialPosition as { center: [number, number]; zoom: number }).center;
+			beforeMapOptions.zoom = (initialPosition as { center: [number, number]; zoom: number }).zoom;
+		} else {
+			beforeMapOptions.bounds = brusselsBounds;
+			beforeMapOptions.fitBoundsOptions = { padding: 0 };
+		}
+		beforeMap = new maplibregl.Map(beforeMapOptions);
 
 		// After map (right side) - non interactive, synced from beforeMap
-		afterMap = new maplibregl.Map({
+		const afterMapOptions: any = {
 			container: afterContainer,
-			style: { version: 8, sources: {}, layers: [] },
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 0 } }),
+			style: JSON.parse(JSON.stringify(baseStyle)), // Deep copy to avoid shared reference
 			minZoom: 10,
 			maxZoom: 20,
 			maxBounds: brusselsMaxBounds,
 			interactive: false,
-			attributionControl: false
-		});
+			attributionControl: false,
+			renderWorldCopies: false,
+			fadeDuration: 0
+		};
+		if (initialPosition) {
+			afterMapOptions.center = (initialPosition as { center: [number, number]; zoom: number }).center;
+			afterMapOptions.zoom = (initialPosition as { center: [number, number]; zoom: number }).zoom;
+		} else {
+			afterMapOptions.bounds = brusselsBounds;
+			afterMapOptions.fitBoundsOptions = { padding: 0 };
+		}
+		afterMap = new maplibregl.Map(afterMapOptions);
+
+		// Error handling with retry for failed tiles
+		const retryCount = new Map<string, number>();
+		const handleMapError = (map: maplibregl.Map) => (e: any) => {
+			console.warn('Map error:', e?.error?.status, e?.sourceId);
+			if (e.sourceId && e.error?.status >= 500) {
+				const count = retryCount.get(e.sourceId) || 0;
+				if (count < 2) {
+					retryCount.set(e.sourceId, count + 1);
+					setTimeout(() => {
+						const source = map.getSource(e.sourceId);
+						if (source && 'reload' in source) {
+							(source as any).reload();
+						}
+					}, 1000 * (count + 1));
+				}
+			}
+		};
+
+		beforeMap.on('error', handleMapError(beforeMap));
+		afterMap.on('error', handleMapError(afterMap));
 
 		// Quand chaque carte est prête, on injecte le groupe sélectionné
 		beforeMap.once('load', () => addYearGroupToMap(beforeMap, beforeGroup));
@@ -683,7 +785,7 @@
 		<div
 			bind:this={afterContainer}
 			class="map-container after"
-			style="clip-path: inset(0 0 0 {sliderValue}%)"
+			style="clip-path: inset(0 0 0 calc({sliderValue}% - 0.5px))"
 		></div>
 
 		<div class="compare-slider" style="left: {sliderValue}%">
