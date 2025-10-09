@@ -239,6 +239,9 @@
 		// Don't call updateLayer() - keep the visual state as-is
 	}
 
+	// Reference to updateHash function (will be set in onMount)
+	let updateHashFn: ((pushToHistory: boolean) => void) | null = null;
+
 	function jumpToYear(index: number) {
 		// Pause if currently playing
 		const wasPlaying = isPlaying;
@@ -271,14 +274,9 @@
 		updateLayer();
 		animateProgress();
 
-		// Update hash immediately
-		if (typeof window !== 'undefined' && map) {
-			const center = map.getCenter();
-			const zoom = map.getZoom();
-			const yearId = allOrthos[index]?.id;
-			if (yearId) {
-				window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${yearId}`;
-			}
+		// Update hash immediately and add to history
+		if (updateHashFn) {
+			updateHashFn(true);
 		}
 	}
 
@@ -585,20 +583,48 @@
 		map.addControl(geocoder, 'top-left');
 		map.addControl(new maplibregl.NavigationControl(), 'top-left');
 
+		// Debounced hash update for browser history
+		let hashUpdateTimeout: number | null = null;
+		let lastHashUpdate = '';
+
+		const updateHash = (pushToHistory: boolean = false) => {
+			if (typeof window === 'undefined' || !map) return;
+
+			const center = map.getCenter();
+			const zoom = map.getZoom();
+			const yearId = allOrthos[currentIndex]?.id;
+			const newHash = yearId
+				? `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${yearId}`
+				: `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z`;
+
+			if (newHash === lastHashUpdate) return;
+			lastHashUpdate = newHash;
+
+			if (pushToHistory) {
+				window.location.hash = newHash;
+			} else {
+				// Replace current history entry without adding new one
+				history.replaceState(null, '', `#${newHash}`);
+			}
+		};
+
+		// Make updateHash available to jumpToYear function
+		updateHashFn = updateHash;
+
 		// Track map position for share buttons and update hash
 		map.on('move', () => {
 			const center = map.getCenter();
 			currentCenter = { lng: center.lng, lat: center.lat };
 			currentZoom = map.getZoom();
-			// Update URL hash with current position and year
-			if (typeof window !== 'undefined') {
-				const yearId = allOrthos[currentIndex]?.id;
-				if (yearId) {
-					window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z,${yearId}`;
-				} else {
-					window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z`;
-				}
-			}
+
+			// Update URL immediately without adding to history
+			updateHash(false);
+
+			// Debounce: only add to history after user stops moving for 1 second
+			if (hashUpdateTimeout) clearTimeout(hashUpdateTimeout);
+			hashUpdateTimeout = window.setTimeout(() => {
+				updateHash(true);
+			}, 1000);
 		});
 
 		// Fit lorsque la carte est totalement "idle" (style + sources + layers prêts) - skip if we have hash position

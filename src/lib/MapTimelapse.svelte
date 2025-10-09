@@ -179,6 +179,9 @@
 		}, 2000);
 	}
 
+	// Reference to updateHash function (will be set in onMount)
+	let updateHashFn: ((pushToHistory: boolean) => void) | null = null;
+
 	function updateBeforeLayer(newGroupId: string) {
 		if (!beforeMap) return;
 		const newGroup = groupedOrthos.find((g) => g.id === newGroupId);
@@ -187,11 +190,9 @@
 		addYearGroupToMap(beforeMap, newGroup);
 		selectedBeforeGroupId = newGroupId;
 
-		// Update hash immediately
-		if (typeof window !== 'undefined' && beforeMap) {
-			const center = beforeMap.getCenter();
-			const zoom = beforeMap.getZoom();
-			window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${selectedBeforeGroupId},${selectedAfterGroupId}`;
+		// Update hash immediately and add to history
+		if (updateHashFn) {
+			updateHashFn(true);
 		}
 	}
 
@@ -203,11 +204,9 @@
 		addYearGroupToMap(afterMap, newGroup);
 		selectedAfterGroupId = newGroupId;
 
-		// Update hash immediately
-		if (typeof window !== 'undefined' && beforeMap) {
-			const center = beforeMap.getCenter();
-			const zoom = beforeMap.getZoom();
-			window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${selectedBeforeGroupId},${selectedAfterGroupId}`;
+		// Update hash immediately and add to history
+		if (updateHashFn) {
+			updateHashFn(true);
 		}
 	}
 
@@ -564,18 +563,48 @@
 			});
 		};
 
+		// Debounced hash update for browser history
+		let hashUpdateTimeout: number | null = null;
+		let lastHashUpdate = '';
+
+		const updateHash = (pushToHistory: boolean = false) => {
+			if (typeof window === 'undefined' || !beforeMap) return;
+
+			const center = beforeMap.getCenter();
+			const zoom = beforeMap.getZoom();
+			const newHash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${selectedBeforeGroupId},${selectedAfterGroupId}`;
+
+			if (newHash === lastHashUpdate) return;
+			lastHashUpdate = newHash;
+
+			if (pushToHistory) {
+				window.location.hash = newHash;
+			} else {
+				// Replace current history entry without adding new one
+				history.replaceState(null, '', `#${newHash}`);
+			}
+		};
+
+		// Make updateHash available to year update functions
+		updateHashFn = updateHash;
+
 		beforeMap.on('move', () => {
 			if (!isDragging && !isSyncing) {
 				syncMaps(beforeMap, afterMap);
 			}
-			// Update position for share buttons and hash
+			// Update position for share buttons
 			const center = beforeMap.getCenter();
 			currentCenter = { lng: center.lng, lat: center.lat };
 			currentZoom = beforeMap.getZoom();
-			// Update URL hash with current position and selected years
-			if (typeof window !== 'undefined') {
-				window.location.hash = `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${currentZoom.toFixed(2)}z,${selectedBeforeGroupId},${selectedAfterGroupId}`;
-			}
+
+			// Update URL immediately without adding to history
+			updateHash(false);
+
+			// Debounce: only add to history after user stops moving for 1 second
+			if (hashUpdateTimeout) clearTimeout(hashUpdateTimeout);
+			hashUpdateTimeout = window.setTimeout(() => {
+				updateHash(true);
+			}, 1000);
 		});
 
 		// Ensure maps resize properly on load and window resize
