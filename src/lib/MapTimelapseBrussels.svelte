@@ -597,6 +597,38 @@
 					suggestions.forEach((s) => s.classList.remove('active'));
 					// Active le premier
 					suggestions[0].classList.add('active');
+
+					// Add touch/click handlers for mobile
+					suggestions.forEach((suggestion, index) => {
+						const handleSelect = (ev: Event) => {
+							ev.preventDefault();
+							ev.stopPropagation();
+
+							if (currentResults[index]) {
+								// Blur input to dismiss keyboard on mobile
+								const input = document.querySelector('.maplibregl-ctrl-geocoder input') as HTMLInputElement;
+								if (input) input.blur();
+
+								// Zoom to result
+								zoomToResult(currentResults[index]);
+
+								// Clear geocoder
+								setTimeout(() => {
+									if (input) input.value = '';
+									geocoder.clear();
+									currentResults = [];
+								}, 100);
+							}
+						};
+
+						// Remove any existing listeners
+						suggestion.removeEventListener('touchend', handleSelect as any);
+						suggestion.removeEventListener('click', handleSelect as any);
+
+						// Add new listeners
+						suggestion.addEventListener('touchend', handleSelect as any, { passive: false });
+						suggestion.addEventListener('click', handleSelect as any);
+					});
 				}
 			}, 50);
 		});
@@ -965,7 +997,7 @@
 
 	@media (max-width: 768px) {
 		:global(.maplibregl-ctrl-geocoder) {
-			width: calc(100vw - 20px);
+			width: min(400px, calc(100vw - 80px));
 		}
 	}
 
