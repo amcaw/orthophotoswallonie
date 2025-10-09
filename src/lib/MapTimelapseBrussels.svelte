@@ -15,10 +15,9 @@
 	let afterMap: maplibregl.Map;
 	let sliderValue = 50;
 	let isDragging = false;
-	let dragTimeoutId: number | null = null;
-
-	// Slider optimization with RAF
+	let activePointerId: number | null = null;
 	let sliderRAF: number | null = null;
+
 	function updateSliderValue(value: number) {
 		sliderValue = value;
 		if (sliderRAF) cancelAnimationFrame(sliderRAF);
@@ -153,84 +152,30 @@
 	let selectedBeforeGroupId = groupedOrthos[0].id;
 	let selectedAfterGroupId = groupedOrthos[groupedOrthos.length - 1].id;
 
-	// Safety function to reset dragging state
-	function stopDragging() {
-		isDragging = false;
-		if (dragTimeoutId !== null) {
-			clearTimeout(dragTimeoutId);
-			dragTimeoutId = null;
-		}
-	}
-
-	function handleMouseDown(e: MouseEvent) {
-		e.preventDefault();
-		e.stopPropagation();
+	// Pointer Events for slider - unified mouse/touch/pen handling
+	function onHandlePointerDown(e: PointerEvent) {
+		const handle = e.currentTarget as HTMLElement;
+		handle.setPointerCapture(e.pointerId);
+		activePointerId = e.pointerId;
 		isDragging = true;
-
-		// Safety timeout: force reset after 10 seconds if mouseup never fires
-		if (dragTimeoutId !== null) clearTimeout(dragTimeoutId);
-		dragTimeoutId = window.setTimeout(() => {
-			console.warn('Drag timeout - forcing reset');
-			stopDragging();
-		}, 10000);
 	}
 
-	function handleMouseMove(e: MouseEvent) {
-		if (!isDragging || !mapWrapper) return;
-		e.preventDefault();
-
+	function onHandlePointerMove(e: PointerEvent) {
+		if (!isDragging || activePointerId !== e.pointerId || !mapWrapper) return;
+		// Don't preventDefault - allows multi-touch gestures on map
 		const rect = mapWrapper.getBoundingClientRect();
 		const x = e.clientX - rect.left;
 		updateSliderValue(Math.max(0, Math.min(100, (x / rect.width) * 100)));
 	}
 
-	function handleMouseUp() {
-		stopDragging();
-	}
-
-	function handleTouchStart(_e: TouchEvent) {
-		// Only preventDefault on the slider handle itself, not globally
-		// The CSS touch-action: none on the handle will prevent default scrolling
-		isDragging = true;
-
-		// Safety timeout: force reset after 10 seconds if touchend/touchcancel never fires
-		if (dragTimeoutId !== null) clearTimeout(dragTimeoutId);
-		dragTimeoutId = window.setTimeout(() => {
-			console.warn('Touch timeout - forcing reset');
-			stopDragging();
-		}, 10000);
-	}
-
-	function handleTouchMove(e: TouchEvent) {
-		if (!isDragging || !mapWrapper) return;
-		// DO NOT preventDefault here - it blocks map touch interactions
-		// Only update slider position when actively dragging
-
-		// Safety check: if no touches, stop dragging
-		if (!e.touches || e.touches.length === 0) {
-			stopDragging();
-			return;
-		}
-
-		const rect = mapWrapper.getBoundingClientRect();
-		const x = e.touches[0].clientX - rect.left;
-		updateSliderValue(Math.max(0, Math.min(100, (x / rect.width) * 100)));
-	}
-
-	function handleTouchEnd() {
-		stopDragging();
-	}
-
-	function handleTouchCancel() {
-		// Handle touch interruptions (browser gestures, etc.)
-		stopDragging();
-	}
-
-	// Handle visibility changes (tab switching, app backgrounding)
-	function handleVisibilityChange() {
-		if (document.hidden && isDragging) {
-			console.log('Page hidden - resetting drag state');
-			stopDragging();
+	function onHandlePointerUp(e: PointerEvent) {
+		if (activePointerId === e.pointerId) {
+			const handle = e.currentTarget as HTMLElement;
+			try {
+				handle.releasePointerCapture(e.pointerId);
+			} catch {}
+			isDragging = false;
+			activePointerId = null;
 		}
 	}
 
@@ -763,6 +708,9 @@
 		// Make updateHash available to year update functions
 		updateHashFn = updateHash;
 
+		// Throttle hash updates to max ~8/s during movement
+		let lastHashTs = 0;
+
 		beforeMap.on('move', () => {
 			if (!isDragging && !isSyncing) {
 				syncMaps(beforeMap, afterMap);
@@ -772,14 +720,18 @@
 			currentCenter = { lng: center.lng, lat: center.lat };
 			currentZoom = beforeMap.getZoom();
 
-			// Update URL immediately without adding to history
-			updateHash(false);
+			// Throttled URL update to avoid saturating main thread
+			const now = performance.now();
+			if (now - lastHashTs > 120) {
+				updateHash(false);
+				lastHashTs = now;
+			}
 
-			// Debounce: only add to history after user stops moving for 1 second
+			// Debounce: only add to history after user stops moving
 			if (hashUpdateTimeout) clearTimeout(hashUpdateTimeout);
 			hashUpdateTimeout = window.setTimeout(() => {
 				updateHash(true);
-			}, 1000);
+			}, 800);
 		});
 
 		// Ensure maps resize properly on load and window resize
@@ -844,9 +796,6 @@
 
 		window.addEventListener('hashchange', handleHashChange);
 
-		// Listen for visibility changes to reset stuck states
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-
 		// Safety: periodic check to ensure isSyncing doesn't get stuck
 		const syncCheckInterval = setInterval(() => {
 			if (isSyncing) {
@@ -858,22 +807,14 @@
 		return () => {
 			window.removeEventListener('resize', handleResize);
 			window.removeEventListener('hashchange', handleHashChange);
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			clearInterval(syncCheckInterval);
-			stopDragging(); // Clean up any active drag state
 			beforeMap.remove();
 			afterMap.remove();
 		};
 	});
 </script>
 
-<svelte:window
-	on:mousemove={handleMouseMove}
-	on:mouseup={handleMouseUp}
-	on:touchmove={handleTouchMove}
-	on:touchend={handleTouchEnd}
-	on:touchcancel={handleTouchCancel}
-/>
+<!-- Removed global window listeners - using pointer capture instead -->
 
 <div class="timelapse-container">
 	<!-- Map comparison -->
@@ -891,8 +832,10 @@
 				class="slider-handle"
 				role="button"
 				tabindex="0"
-				on:mousedown={handleMouseDown}
-				on:touchstart={handleTouchStart}
+				on:pointerdown={onHandlePointerDown}
+				on:pointermove={onHandlePointerMove}
+				on:pointerup={onHandlePointerUp}
+				on:pointercancel={onHandlePointerUp}
 			>
 				<span class="slider-arrows">◄ ►</span>
 			</div>
