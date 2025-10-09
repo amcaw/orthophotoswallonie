@@ -607,8 +607,55 @@
 		setTimeout(handleResize, 100);
 		window.addEventListener('resize', handleResize);
 
+		// Listen for hash changes (browser back/forward)
+		const handleHashChange = () => {
+			if (typeof window === 'undefined') return;
+
+			const hash = window.location.hash.slice(1);
+			if (!hash) return;
+
+			const parts = hash.split(',');
+			if (parts.length >= 3) {
+				const lat = parseFloat(parts[0]);
+				const lng = parseFloat(parts[1]);
+				const zoom = parseFloat(parts[2].replace('z', ''));
+
+				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
+					// Update map position
+					if (beforeMap) {
+						beforeMap.flyTo({ center: [lng, lat], zoom, duration: 1000 });
+					}
+
+					// Update year selections if provided
+					if (parts.length >= 5) {
+						const beforeYear = parts[3];
+						const afterYear = parts[4];
+
+						if (beforeYear && beforeYear !== selectedBeforeGroupId) {
+							const beforeGroup = groupedOrthos.find(g => g.id === beforeYear);
+							if (beforeGroup) {
+								selectedBeforeGroupId = beforeYear;
+								addYearGroupToMap(beforeMap, beforeGroup);
+							}
+						}
+
+						if (afterYear && afterYear !== selectedAfterGroupId) {
+							const afterGroup = groupedOrthos.find(g => g.id === afterYear);
+							if (afterGroup) {
+								selectedAfterGroupId = afterYear;
+								addYearGroupToMap(afterMap, afterGroup);
+							}
+						}
+					}
+				}
+			}
+		};
+
+		window.addEventListener('hashchange', handleHashChange);
+
 		return () => {
 			window.removeEventListener('resize', handleResize);
+			window.removeEventListener('hashchange', handleHashChange);
 			beforeMap.remove();
 			afterMap.remove();
 		};

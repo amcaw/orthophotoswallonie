@@ -668,11 +668,45 @@
 		window.addEventListener('resize', throttledResize);
 		window.addEventListener('orientationchange', throttledResize);
 
+		// Listen for hash changes (browser back/forward)
+		const handleHashChange = () => {
+			if (typeof window === 'undefined') return;
+
+			const hash = window.location.hash.slice(1);
+			if (!hash) return;
+
+			const parts = hash.split(',');
+			if (parts.length >= 3) {
+				const lat = parseFloat(parts[0]);
+				const lng = parseFloat(parts[1]);
+				const zoom = parseFloat(parts[2].replace('z', ''));
+
+				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
+					// Update map position
+					if (map) {
+						map.flyTo({ center: [lng, lat], zoom, duration: 1000 });
+					}
+
+					// Update year selection if provided
+					if (parts.length >= 4) {
+						const yearId = parts[3];
+						const yearIndex = allOrthos.findIndex(g => g.id === yearId);
+						if (yearIndex !== -1 && yearIndex !== currentIndex) {
+							jumpToYear(yearIndex);
+						}
+					}
+				}
+			}
+		};
+
+		window.addEventListener('hashchange', handleHashChange);
+
 		return () => {
 			pause();
 			ro.disconnect();
 			window.removeEventListener('resize', throttledResize);
 			window.removeEventListener('orientationchange', throttledResize);
+			window.removeEventListener('hashchange', handleHashChange);
 			map.remove();
 		};
 	});
