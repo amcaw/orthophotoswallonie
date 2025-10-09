@@ -65,14 +65,15 @@
 	}
 
 	function handleTouchStart(e: TouchEvent) {
-		e.preventDefault();
-		e.stopPropagation();
+		// Only preventDefault on the slider handle itself, not globally
+		// The CSS touch-action: none on the handle will prevent default scrolling
 		isDragging = true;
 	}
 
 	function handleTouchMove(e: TouchEvent) {
 		if (!isDragging || !mapWrapper) return;
-		e.preventDefault();
+		// DO NOT preventDefault here - it blocks map touch interactions
+		// Only update slider position when actively dragging
 
 		const rect = mapWrapper.getBoundingClientRect();
 		const x = e.touches[0].clientX - rect.left;
@@ -80,6 +81,11 @@
 	}
 
 	function handleTouchEnd() {
+		isDragging = false;
+	}
+
+	function handleTouchCancel() {
+		// Handle touch interruptions (browser gestures, etc.)
 		isDragging = false;
 	}
 
@@ -667,6 +673,7 @@
 	on:mouseup={handleMouseUp}
 	on:touchmove={handleTouchMove}
 	on:touchend={handleTouchEnd}
+	on:touchcancel={handleTouchCancel}
 />
 
 <div class="timelapse-container">

@@ -46,9 +46,9 @@
 		isSwapped = !isSwapped;
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		// Parse hash for shared position (#lat,lng,zoom)
-		let initialPosition: { center: [number, number]; zoom: number } | null = null;
+		let initialPosition: { center: [number, number]; zoom: number } | undefined = undefined;
 
 		// Function to parse hash
 		const parseHash = () => {
@@ -72,8 +72,7 @@
 
 		// Try parsing hash with retries for production reliability
 		if (!parseHash()) {
-			await new Promise(resolve => setTimeout(resolve, 10));
-			parseHash();
+			setTimeout(() => parseHash(), 10);
 		}
 
 		let isSyncing = false;
@@ -82,6 +81,11 @@
 		// Get orthophoto configs - before: 1971, after: 2024
 		const beforeOrtho = orthophotosBrusselsConfig.orthophotos.find(o => o.id === 'ortho-1971')!;
 		const afterOrtho = orthophotosBrusselsConfig.orthophotos.find(o => o.id === 'ortho-2024')!;
+
+		// Setup initial position options
+		const mapPositionOptions: any = initialPosition
+			? { center: (initialPosition as any).center, zoom: (initialPosition as any).zoom }
+			: { bounds: brusselsBounds, fitBoundsOptions: { padding: 20 } };
 
 		// After map (2024) - visible partout
 		afterMap = new maplibregl.Map({
@@ -104,7 +108,7 @@
 					}
 				]
 			},
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 20 } }),
+			...mapPositionOptions,
 			minZoom: 10,
 			maxZoom: 20,
 			maxBounds: brusselsMaxBounds,
@@ -132,7 +136,7 @@
 					}
 				]
 			},
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: brusselsBounds, fitBoundsOptions: { padding: 20 } }),
+			...mapPositionOptions,
 			minZoom: 10,
 			maxZoom: 20,
 			maxBounds: brusselsMaxBounds,

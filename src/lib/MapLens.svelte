@@ -32,12 +32,12 @@
 		isSwapped = !isSwapped;
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		let isSyncing = false;
 		const geocoderCache = new Map<string, any>();
 
 		// Parse hash for shared position (#lat,lng,zoom)
-		let initialPosition: { center: [number, number]; zoom: number } | null = null;
+		let initialPosition: { center: [number, number]; zoom: number } | undefined = undefined;
 
 		// Function to parse hash
 		const parseHash = () => {
@@ -61,13 +61,17 @@
 
 		// Try parsing hash with retries for production reliability
 		if (!parseHash()) {
-			await new Promise(resolve => setTimeout(resolve, 10));
-			parseHash();
+			setTimeout(() => parseHash(), 10);
 		}
 
 		// Get orthophoto configs
 		const beforeOrtho = orthophotosConfig.orthophotos.find(o => o.id === 'ortho-1971')!;
 		const afterOrtho = orthophotosConfig.orthophotos.find(o => o.id === 'ortho-2023-ete')!;
+
+		// Setup initial position options
+		const mapPositionOptions: any = initialPosition
+			? { center: (initialPosition as any).center, zoom: (initialPosition as any).zoom }
+			: { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } };
 
 		// After map (2023) - visible partout
 		afterMap = new maplibregl.Map({
@@ -92,7 +96,7 @@
 					}
 				]
 			},
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } }),
+			...mapPositionOptions,
 			minZoom: 7,
 			maxZoom: 17,
 			maxBounds: walloniaMaxBounds,
@@ -122,7 +126,7 @@
 					}
 				]
 			},
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } }),
+			...mapPositionOptions,
 			minZoom: 7,
 			maxZoom: 17,
 			maxBounds: walloniaMaxBounds,
