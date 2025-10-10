@@ -1007,9 +1007,11 @@
 	}
 
 	/* Geocoder always visible, outside clipped area */
-	:global(.maplibregl-ctrl-top-left) {
+	:global(.map-container.before .maplibregl-ctrl-top-left) {
 		z-index: 100 !important;
-		position: absolute !important;
+		position: fixed !important;
+		top: 10px !important;
+		left: 10px !important;
 		pointer-events: auto !important;
 	}
 
