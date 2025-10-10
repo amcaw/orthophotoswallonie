@@ -14,6 +14,17 @@
 		// Check if we're in an iframe
 		const isInIframe = window.self !== window.top;
 
+		// Apply overflow control based on mode
+		if (!isInIframe) {
+			// Standalone mode: hide overflow to prevent scrollbars
+			document.documentElement.style.overflow = 'hidden';
+			document.body.style.overflow = 'hidden';
+		} else {
+			// Iframe mode: allow overflow for proper height calculation
+			document.documentElement.style.overflow = 'visible';
+			document.body.style.overflow = 'visible';
+		}
+
 		// Calculate target height - use available space
 		const calculateTargetHeight = () => {
 			if (isInIframe) {
