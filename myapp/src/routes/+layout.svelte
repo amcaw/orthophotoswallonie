@@ -7,13 +7,45 @@
 	let { children } = $props();
 	let pymChild = $state(/** @type {import('pym.js').Child | null} */ (null));
 
+	// Parent page header height to account for
+	const PARENT_HEADER_HEIGHT = 150;
+
 	onMount(() => {
-		// Initialize pym.js child with polling disabled initially
+		// Check if we're in an iframe
+		const isInIframe = window.self !== window.top;
+
+		// Calculate target height accounting for parent header
+		const calculateTargetHeight = () => {
+			if (isInIframe) {
+				// Use viewport height minus parent header
+				return Math.max(window.innerHeight, 600);
+			} else {
+				// Standalone mode - use natural height
+				return Math.max(
+					document.documentElement.scrollHeight,
+					document.body.scrollHeight,
+					800
+				);
+			}
+		};
+
+		// Set dynamic height on the app container
+		const updateContainerHeight = () => {
+			const targetHeight = calculateTargetHeight();
+			const svelte = document.getElementById('svelte');
+			if (svelte && isInIframe) {
+				svelte.style.height = `${targetHeight}px`;
+				svelte.style.minHeight = `${targetHeight}px`;
+			}
+		};
+
+		// Initialize pym.js child
 		pymChild = new pym.Child({ polling: 0 });
 
-		// Force height updates using the correct API
+		// Force height updates
 		const forceHeightUpdate = () => {
 			if (pymChild) {
+				updateContainerHeight();
 				pymChild.sendHeight();
 			}
 		};
@@ -27,7 +59,6 @@
 
 		// Enable polling after initial load
 		setTimeout(() => {
-			// Re-initialize with polling enabled
 			if (pymChild) {
 				pymChild.remove();
 			}
@@ -37,10 +68,23 @@
 		// Send height on window resize
 		const handleResize = () => {
 			if (pymChild) {
+				updateContainerHeight();
 				pymChild.sendHeight();
 			}
 		};
 		window.addEventListener('resize', handleResize);
+
+		// Listen for parent viewport changes
+		if (isInIframe) {
+			// Update height when parent resizes the iframe
+			const resizeObserver = new ResizeObserver(() => {
+				updateContainerHeight();
+				if (pymChild) {
+					pymChild.sendHeight();
+				}
+			});
+			resizeObserver.observe(document.body);
+		}
 
 		// Return cleanup function
 		return () => {
