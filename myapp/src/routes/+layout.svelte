@@ -12,11 +12,26 @@
 		pymChild = new pym.Child({
 			polling: 500,
 			renderCallback: () => {
-				// Force initial height calculation
+				// Force initial height calculation with actual viewport height
 				if (pymChild) {
-					setTimeout(() => pymChild.sendHeight(), 100);
-					setTimeout(() => pymChild.sendHeight(), 500);
-					setTimeout(() => pymChild.sendHeight(), 1000);
+					const sendActualHeight = () => {
+						// Get the actual viewport height
+						const height = Math.max(
+							document.documentElement.scrollHeight,
+							document.documentElement.offsetHeight,
+							document.body.scrollHeight,
+							document.body.offsetHeight,
+							window.innerHeight
+						);
+						// Send the height directly
+						pymChild.sendMessage('height', height.toString());
+					};
+
+					setTimeout(sendActualHeight, 50);
+					setTimeout(sendActualHeight, 200);
+					setTimeout(sendActualHeight, 500);
+					setTimeout(sendActualHeight, 1000);
+					setTimeout(sendActualHeight, 2000);
 				}
 			}
 		});
@@ -24,7 +39,14 @@
 		// Also send height on window resize
 		const handleResize = () => {
 			if (pymChild) {
-				pymChild.sendHeight();
+				const height = Math.max(
+					document.documentElement.scrollHeight,
+					document.documentElement.offsetHeight,
+					document.body.scrollHeight,
+					document.body.offsetHeight,
+					window.innerHeight
+				);
+				pymChild.sendMessage('height', height.toString());
 			}
 		};
 		window.addEventListener('resize', handleResize);
