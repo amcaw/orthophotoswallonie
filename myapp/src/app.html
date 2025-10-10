@@ -17,19 +17,17 @@
 				pointer-events: auto !important;
 				touch-action: auto !important;
 			}
-			/* Ensure all interactive elements work in iframe */
-			*, *::before, *::after {
-				pointer-events: auto !important;
-				touch-action: auto !important;
-			}
-			/* Specifically for map containers */
-			.map-container,
+			/* Specifically for map containers - but allow override */
+			.map-container.before,
 			.page-container,
-			canvas,
 			.maplibregl-canvas,
 			.maplibregl-canvas-container {
 				pointer-events: auto !important;
 				touch-action: none !important; /* Let map handle touch */
+			}
+			/* IMPORTANT: Don't override pointer-events on .after for slider functionality */
+			.map-container.after {
+				pointer-events: none !important;
 			}
 		</style>
 		%sveltekit.head%

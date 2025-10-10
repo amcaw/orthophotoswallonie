@@ -918,27 +918,34 @@
 	}
 
 	.map-container {
-		position: absolute;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
-		min-height: 500px;
-	}
-
-	:global(.map-container .maplibregl-canvas-container) {
+		position: absolute !important;
+		top: 0 !important;
+		left: 0 !important;
 		width: 100% !important;
 		height: 100% !important;
+		min-height: 500px !important;
 	}
 
-	:global(.map-container .maplibregl-canvas) {
+	.map-container.before {
+		z-index: 0 !important;
+		pointer-events: auto !important;
+	}
+
+	:global(.map-container.before .maplibregl-canvas-container),
+	:global(.map-container.before .maplibregl-canvas) {
 		width: 100% !important;
 		height: 100% !important;
+		pointer-events: auto !important;
+		touch-action: none !important;
 	}
 
 	.map-container.after {
-		z-index: 1;
-		pointer-events: none;
+		z-index: 1 !important;
+		pointer-events: none !important;
+	}
+
+	:global(.map-container.after *) {
+		pointer-events: none !important;
 	}
 
 	.compare-slider {
