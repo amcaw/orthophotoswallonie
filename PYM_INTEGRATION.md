@@ -44,6 +44,23 @@ To embed this app in a parent page, use the following code:
 <html>
 <head>
     <script src="https://pym.nprapps.org/pym.v1.min.js"></script>
+    <style>
+        /* Container styling - adjust height as needed */
+        #iframe-container {
+            width: 100%;
+            min-height: 800px;
+            height: calc(100vh - 150px); /* Adjust 150px to your header height */
+            position: relative;
+        }
+
+        /* Ensure iframe allows all interactions */
+        #iframe-container iframe {
+            pointer-events: auto !important;
+            touch-action: auto !important;
+            border: none;
+            width: 100%;
+        }
+    </style>
 </head>
 <body>
     <div id="iframe-container"></div>
@@ -53,9 +70,25 @@ To embed this app in a parent page, use the following code:
             title: 'Occupation Sols',
             scrollwait: 100
         });
+
+        // Ensure iframe allows all interactions after creation
+        pymParent.iframe.setAttribute('scrolling', 'no');
+        pymParent.iframe.style.pointerEvents = 'auto';
+        pymParent.iframe.style.touchAction = 'auto';
     </script>
 </body>
 </html>
+```
+
+**IMPORTANT for WordPress/CMS:** If embedding in WordPress or another CMS, make sure to:
+1. Use the "Custom HTML" block, not the "Embed" block
+2. Add this CSS to your theme or page:
+```css
+.pym-container iframe {
+    pointer-events: auto !important;
+    touch-action: auto !important;
+    min-height: 800px !important;
+}
 ```
 
 ## Testing
