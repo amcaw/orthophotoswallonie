@@ -14,14 +14,16 @@
 		// Check if we're in an iframe
 		const isInIframe = window.self !== window.top;
 
-		// Calculate target height
+		// Calculate target height - use available space
 		const calculateTargetHeight = () => {
-			// Always use a fixed large height that pym.js will communicate to parent
-			// This ensures maps have enough space and parent adjusts iframe accordingly
-			return Math.max(
-				window.innerHeight,
-				800
-			);
+			if (isInIframe) {
+				// In iframe: use the space given by parent (accounting for header)
+				// Use window.innerHeight which reflects iframe's actual height
+				return window.innerHeight;
+			} else {
+				// Standalone: use full viewport or minimum
+				return Math.max(window.innerHeight, 600);
+			}
 		};
 
 		// Set dynamic height on the app container
