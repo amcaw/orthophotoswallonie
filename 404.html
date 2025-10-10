@@ -4,30 +4,40 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<style>
-			html, body {
+			html {
 				margin: 0;
 				padding: 0;
 				width: 100%;
-				min-height: 100vh;
+				height: 100%;
+			}
+			body {
+				margin: 0;
+				padding: 0;
+				width: 100%;
+				height: 100vh;
+				overflow: hidden;
+			}
+			#svelte {
+				width: 100%;
 				height: 100%;
 			}
 		</style>
 		
-		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/entry/start.DkAGc0uY.js">
-		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/C0CGnhCp.js">
+		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/entry/start.CYGBQ79N.js">
+		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/n1F7C2kZ.js">
 		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/CFz4bSAm.js">
 		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/CwdBl0A7.js">
-		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/4vC94v5i.js">
-		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/entry/app.HPVrVjh-.js">
+		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/HYaVfe8F.js">
+		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/entry/app.DgfAOx0U.js">
 		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/DsnmJJEf.js">
 		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/JAd6ih3G.js">
 		<link rel="modulepreload" href="/orthophotoswallonie/_app/immutable/chunks/Cgb6JafD.js">
 	</head>
 	<body data-sveltekit-preload-data="hover">
-		<div style="display: contents">
+		<div id="svelte">
 			<script>
 				{
-					__sveltekit_114mtw1 = {
+					__sveltekit_108ln99 = {
 						base: "/orthophotoswallonie",
 						assets: "/orthophotoswallonie"
 					};
@@ -35,8 +45,8 @@
 					const element = document.currentScript.parentElement;
 
 					Promise.all([
-						import("/orthophotoswallonie/_app/immutable/entry/start.DkAGc0uY.js"),
-						import("/orthophotoswallonie/_app/immutable/entry/app.HPVrVjh-.js")
+						import("/orthophotoswallonie/_app/immutable/entry/start.CYGBQ79N.js"),
+						import("/orthophotoswallonie/_app/immutable/entry/app.DgfAOx0U.js")
 					]).then(([kit, app]) => {
 						kit.start(app, element);
 					});
