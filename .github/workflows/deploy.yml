@@ -21,9 +21,11 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
+        working-directory: myapp
         run: npm ci
 
       - name: Build
+        working-directory: myapp
         env:
           NODE_ENV: production
         run: npm run build
@@ -31,7 +33,7 @@ jobs:
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: build
+          folder: myapp/build
           branch: gh-pages
           clean: true
           clean-exclude: |
