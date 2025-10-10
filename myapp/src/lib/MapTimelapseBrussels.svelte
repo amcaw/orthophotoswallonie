@@ -12,6 +12,8 @@
 	let afterContainer: HTMLDivElement;
 	let mapWrapper: HTMLDivElement;
 	let geocoderContainer: HTMLDivElement;
+	let navigationContainer: HTMLDivElement;
+	let attributionContainer: HTMLDivElement;
 	let beforeMap: maplibregl.Map;
 	let afterMap: maplibregl.Map;
 	let sliderValue = 50;
@@ -425,10 +427,20 @@
 		beforeMap.once('load', () => addYearGroupToMap(beforeMap, beforeGroup));
 		afterMap.once('load', () => addYearGroupToMap(afterMap, afterGroup));
 
-		beforeMap.addControl(new maplibregl.NavigationControl(), 'bottom-left');
-		beforeMap.addControl(new maplibregl.AttributionControl({
+		// Extract navigation and attribution controls from map DOM to avoid z-index issues
+		const navigationControl = new maplibregl.NavigationControl();
+		const navigationElement = navigationControl.onAdd(beforeMap);
+		if (navigationContainer) {
+			navigationContainer.appendChild(navigationElement);
+		}
+
+		const attributionControl = new maplibregl.AttributionControl({
 			customAttribution: 'Made by <a href="https://bsky.app/profile/amcaw.bsky.social" target="_blank">@amcaw</a> - Creative Commons Attribution (CC-BY) - <a href="https://be.brussels/en/about-region/structure-and-organisations/administrations-and-institutions-region/paradigm" target="_blank">Paradigm</a> - <a href="https://bruciel.brussels/" target="_blank">Bruciel</a>'
-		}), 'bottom-right');
+		});
+		const attributionElement = attributionControl.onAdd(beforeMap);
+		if (attributionContainer) {
+			attributionContainer.appendChild(attributionElement);
+		}
 
 		// Add geocoder for address search
 		const geocoderApi = {
@@ -864,8 +876,10 @@
 			style="clip-path: inset(0 0 0 calc({sliderValue}% - 0.5px))"
 		></div>
 
-		<!-- Geocoder overlay - outside map containers to avoid z-index issues -->
+		<!-- Control overlays - outside map containers to avoid z-index issues -->
 		<div bind:this={geocoderContainer} class="geocoder-overlay"></div>
+		<div bind:this={navigationContainer} class="navigation-overlay"></div>
+		<div bind:this={attributionContainer} class="attribution-overlay"></div>
 
 		<div class="compare-slider" style="left: {sliderValue}%">
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -995,7 +1009,7 @@
 		pointer-events: none;
 	}
 
-	/* Geocoder overlay - positioned above both maps */
+	/* Control overlays - positioned above both maps */
 	.geocoder-overlay {
 		position: absolute;
 		top: 10px;
@@ -1011,6 +1025,30 @@
 	}
 
 	:global(.geocoder-overlay .maplibregl-ctrl-geocoder *) {
+		pointer-events: auto !important;
+	}
+
+	.navigation-overlay {
+		position: absolute;
+		bottom: 50px;
+		left: 10px;
+		z-index: 100;
+		pointer-events: none;
+	}
+
+	:global(.navigation-overlay .maplibregl-ctrl) {
+		pointer-events: auto !important;
+	}
+
+	.attribution-overlay {
+		position: absolute;
+		bottom: 0;
+		right: 0;
+		z-index: 100;
+		pointer-events: none;
+	}
+
+	:global(.attribution-overlay .maplibregl-ctrl) {
 		pointer-events: auto !important;
 	}
 
@@ -1030,25 +1068,14 @@
 	}
 
 	/* Vertical navigation controls */
-	:global(.maplibregl-ctrl-bottom-left .maplibregl-ctrl-group button) {
+	:global(.navigation-overlay .maplibregl-ctrl-group button) {
 		width: 29px !important;
 		height: 29px !important;
 	}
 
-	/* Align controls with geocoder */
-	:global(.maplibregl-ctrl-top-left),
-	:global(.maplibregl-ctrl-top-right) {
-		margin-top: 10px !important;
-	}
-
-	/* Position bottom-left controls higher to avoid attribution overlap */
-	:global(.maplibregl-ctrl-bottom-left) {
-		margin-bottom: 50px !important;
-	}
-
 	@media (max-width: 768px) {
-		:global(.maplibregl-ctrl-bottom-left) {
-			margin-bottom: 60px !important;
+		.navigation-overlay {
+			bottom: 60px;
 		}
 	}
 </style>
