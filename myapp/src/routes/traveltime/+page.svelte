@@ -12,18 +12,26 @@
 
 <style>
 	:global(body) {
-		margin: 0;
-		padding: 0;
-		overflow: visible;
-		touch-action: none;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		pointer-events: auto !important;
 	}
 
 	.page-container {
-		position: relative;
-		width: 100%;
-		height: 100%;
-		min-height: 800px;
-		margin: 0;
-		padding: 0;
+		position: relative !important;
+		width: 100% !important;
+		height: 100% !important;
+		min-height: 800px !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		pointer-events: auto !important;
+		touch-action: auto !important;
+	}
+
+	:global(.maplibregl-canvas-container),
+	:global(.maplibregl-canvas) {
+		pointer-events: auto !important;
+		touch-action: none !important;
 	}
 </style>
