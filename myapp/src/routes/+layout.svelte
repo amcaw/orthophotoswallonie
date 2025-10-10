@@ -8,45 +8,36 @@
 	let pymChild = $state(/** @type {import('pym.js').Child | null} */ (null));
 
 	onMount(() => {
-		// Initialize pym.js child
-		pymChild = new pym.Child({
-			polling: 500,
-			renderCallback: () => {
-				// Force initial height calculation with actual viewport height
-				if (pymChild) {
-					const sendActualHeight = () => {
-						// Get the actual viewport height
-						const height = Math.max(
-							document.documentElement.scrollHeight,
-							document.documentElement.offsetHeight,
-							document.body.scrollHeight,
-							document.body.offsetHeight,
-							window.innerHeight
-						);
-						// Send the height directly
-						pymChild.sendMessage('height', height.toString());
-					};
+		// Initialize pym.js child with polling disabled initially
+		pymChild = new pym.Child({ polling: 0 });
 
-					setTimeout(sendActualHeight, 50);
-					setTimeout(sendActualHeight, 200);
-					setTimeout(sendActualHeight, 500);
-					setTimeout(sendActualHeight, 1000);
-					setTimeout(sendActualHeight, 2000);
-				}
+		// Force height updates using the correct API
+		const forceHeightUpdate = () => {
+			if (pymChild) {
+				pymChild.sendHeight();
 			}
-		});
+		};
 
-		// Also send height on window resize
+		// Send height multiple times as content loads
+		setTimeout(forceHeightUpdate, 100);
+		setTimeout(forceHeightUpdate, 300);
+		setTimeout(forceHeightUpdate, 500);
+		setTimeout(forceHeightUpdate, 1000);
+		setTimeout(forceHeightUpdate, 2000);
+
+		// Enable polling after initial load
+		setTimeout(() => {
+			// Re-initialize with polling enabled
+			if (pymChild) {
+				pymChild.remove();
+			}
+			pymChild = new pym.Child({ polling: 500 });
+		}, 2500);
+
+		// Send height on window resize
 		const handleResize = () => {
 			if (pymChild) {
-				const height = Math.max(
-					document.documentElement.scrollHeight,
-					document.documentElement.offsetHeight,
-					document.body.scrollHeight,
-					document.body.offsetHeight,
-					window.innerHeight
-				);
-				pymChild.sendMessage('height', height.toString());
+				pymChild.sendHeight();
 			}
 		};
 		window.addEventListener('resize', handleResize);
