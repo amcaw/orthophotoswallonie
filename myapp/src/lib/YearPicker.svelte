@@ -9,6 +9,10 @@
   let isExpanded = false;
 
   function select(groupId: string) {
+    // Don't dispatch if clicking on already selected year
+    if (groupId === selectedId) {
+      return;
+    }
     dispatch('select', { id: groupId });
     isExpanded = false;
   }
