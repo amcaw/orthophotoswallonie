@@ -21,11 +21,10 @@
 	}
 
 	.page-container {
-		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100vw;
+		position: relative;
+		width: 100%;
 		height: 100vh;
+		min-height: 600px;
 		margin: 0;
 		padding: 0;
 		overflow: hidden;

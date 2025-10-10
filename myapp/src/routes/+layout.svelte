@@ -9,10 +9,29 @@
 
 	onMount(() => {
 		// Initialize pym.js child
-		pymChild = new pym.Child({ polling: 500 });
+		pymChild = new pym.Child({
+			polling: 500,
+			renderCallback: () => {
+				// Force initial height calculation
+				if (pymChild) {
+					setTimeout(() => pymChild.sendHeight(), 100);
+					setTimeout(() => pymChild.sendHeight(), 500);
+					setTimeout(() => pymChild.sendHeight(), 1000);
+				}
+			}
+		});
+
+		// Also send height on window resize
+		const handleResize = () => {
+			if (pymChild) {
+				pymChild.sendHeight();
+			}
+		};
+		window.addEventListener('resize', handleResize);
 
 		// Return cleanup function
 		return () => {
+			window.removeEventListener('resize', handleResize);
 			if (pymChild) {
 				pymChild.remove();
 			}
