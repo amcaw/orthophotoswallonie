@@ -116,12 +116,13 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-		z-index: 10;
+		z-index: 150;
 		background: rgba(255, 255, 255, 0.9);
 		backdrop-filter: blur(4px);
 		padding: 8px;
 		border-radius: 4px;
 		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+		pointer-events: auto !important;
 	}
 
 	button {
@@ -137,15 +138,23 @@
 		align-items: center;
 		justify-content: center;
 		color: #333;
+		pointer-events: auto !important;
+		touch-action: manipulation;
 	}
 
 	button:hover {
 		background: rgba(0, 0, 0, 0.05);
 	}
 
+	button:active {
+		background: rgba(0, 0, 0, 0.1);
+		transform: scale(0.95);
+	}
+
 	svg {
 		width: 20px;
 		height: 20px;
+		pointer-events: none;
 	}
 
 	/* Platform-specific colors on hover */
@@ -159,19 +168,22 @@
 		.share-buttons {
 			bottom: 70px;
 			right: 5px;
-			padding: 6px;
-			gap: 6px;
+			padding: 8px;
+			gap: 8px;
 		}
 
 		button {
-			width: 28px;
-			height: 28px;
-			padding: 4px;
+			/* Larger touch targets for mobile - 44x44px minimum recommended */
+			width: 40px;
+			height: 40px;
+			min-width: 44px;
+			min-height: 44px;
+			padding: 8px;
 		}
 
 		svg {
-			width: 18px;
-			height: 18px;
+			width: 22px;
+			height: 22px;
 		}
 	}
 </style>
