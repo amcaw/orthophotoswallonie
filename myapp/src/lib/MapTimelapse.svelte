@@ -1006,9 +1006,11 @@
 		pointer-events: none;
 	}
 
-	/* Geocoder z-index */
+	/* Geocoder always visible, outside clipped area */
 	:global(.maplibregl-ctrl-top-left) {
 		z-index: 100 !important;
+		position: absolute !important;
+		pointer-events: auto !important;
 	}
 
 	:global(.maplibregl-ctrl-top-right) {
@@ -1020,6 +1022,11 @@
 		position: relative;
 		width: 600px;
 		max-width: calc(100vw - 20px);
+		pointer-events: auto !important;
+	}
+
+	:global(.maplibregl-ctrl-geocoder *) {
+		pointer-events: auto !important;
 	}
 
 	@media (max-width: 768px) {
