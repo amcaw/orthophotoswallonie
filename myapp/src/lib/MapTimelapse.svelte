@@ -1048,6 +1048,12 @@
 		pointer-events: auto !important;
 	}
 
+	/* Geocoder suggestions dropdown must be above everything */
+	:global(.geocoder-overlay .maplibregl-ctrl-geocoder .suggestions) {
+		z-index: 250 !important;
+		position: absolute !important;
+	}
+
 	.navigation-overlay {
 		position: absolute;
 		bottom: 50px;
@@ -1080,11 +1086,6 @@
 		:global(.geocoder-overlay .maplibregl-ctrl-geocoder) {
 			width: calc(100vw - 20px);
 		}
-	}
-
-	:global(.maplibregl-ctrl-geocoder .suggestions) {
-		z-index: 101 !important;
-		position: absolute;
 	}
 
 	/* Vertical navigation controls */
