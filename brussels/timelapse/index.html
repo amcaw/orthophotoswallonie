@@ -17,31 +17,29 @@
 				pointer-events: auto !important;
 				touch-action: auto !important;
 			}
-			/* Ensure all interactive elements work in iframe */
-			*, *::before, *::after {
-				pointer-events: auto !important;
-				touch-action: auto !important;
-			}
-			/* Specifically for map containers */
-			.map-container,
+			/* Specifically for map containers - but allow override */
+			.map-container.before,
 			.page-container,
-			canvas,
 			.maplibregl-canvas,
 			.maplibregl-canvas-container {
 				pointer-events: auto !important;
 				touch-action: none !important; /* Let map handle touch */
 			}
+			/* IMPORTANT: Don't override pointer-events on .after for slider functionality */
+			.map-container.after {
+				pointer-events: none !important;
+			}
 		</style>
 		
 		<link href="../../_app/immutable/assets/ShareButtons.D7E3fXV0.css" rel="stylesheet">
 		<link href="../../_app/immutable/assets/YearPicker.DpDcjTym.css" rel="stylesheet">
-		<link href="../../_app/immutable/assets/5.DA4uSYeK.css" rel="stylesheet">
-		<link rel="modulepreload" href="../../_app/immutable/entry/start.2y9iVP-i.js">
-		<link rel="modulepreload" href="../../_app/immutable/chunks/hi_Vbnji.js">
+		<link href="../../_app/immutable/assets/5.D3njPCcC.css" rel="stylesheet">
+		<link rel="modulepreload" href="../../_app/immutable/entry/start.iB5zlPRT.js">
+		<link rel="modulepreload" href="../../_app/immutable/chunks/BOLDX1Cr.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/CWmqxiNW.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/CwdBl0A7.js">
-		<link rel="modulepreload" href="../../_app/immutable/chunks/DjHxXCRx.js">
-		<link rel="modulepreload" href="../../_app/immutable/entry/app.BEQpoHnY.js">
+		<link rel="modulepreload" href="../../_app/immutable/chunks/Ad7mrIYb.js">
+		<link rel="modulepreload" href="../../_app/immutable/entry/app.DHa2WrXJ.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/DsnmJJEf.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/JAd6ih3G.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/Cgb6JafD.js">
@@ -50,7 +48,7 @@
 		<link rel="modulepreload" href="../../_app/immutable/chunks/CQmyZwkG.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/Ci2bA8W4.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/CqkleIqs.js">
-		<link rel="modulepreload" href="../../_app/immutable/nodes/5.DhcDAsLj.js">
+		<link rel="modulepreload" href="../../_app/immutable/nodes/5.Ah28b0io.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/CrLrFCfu.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/TnEXErsI.js">
 		<link rel="modulepreload" href="../../_app/immutable/chunks/C4AmPXCP.js">
@@ -61,7 +59,7 @@
 			
 			<script>
 				{
-					__sveltekit_647ggh = {
+					__sveltekit_1jg36bf = {
 						base: new URL("../..", location).pathname.slice(0, -1),
 						assets: "/orthophotoswallonie"
 					};
@@ -69,8 +67,8 @@
 					const element = document.currentScript.parentElement;
 
 					Promise.all([
-						import("../../_app/immutable/entry/start.2y9iVP-i.js"),
-						import("../../_app/immutable/entry/app.BEQpoHnY.js")
+						import("../../_app/immutable/entry/start.iB5zlPRT.js"),
+						import("../../_app/immutable/entry/app.DHa2WrXJ.js")
 					]).then(([kit, app]) => {
 						kit.start(app, element, {
 							node_ids: [0, 5],
