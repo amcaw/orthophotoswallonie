@@ -14,29 +14,27 @@
 		// Check if we're in an iframe
 		const isInIframe = window.self !== window.top;
 
-		// Calculate target height accounting for parent header
+		// Calculate target height
 		const calculateTargetHeight = () => {
-			if (isInIframe) {
-				// Use viewport height minus parent header
-				return Math.max(window.innerHeight, 600);
-			} else {
-				// Standalone mode - use natural height
-				return Math.max(
-					document.documentElement.scrollHeight,
-					document.body.scrollHeight,
-					800
-				);
-			}
+			// Always use a fixed large height that pym.js will communicate to parent
+			// This ensures maps have enough space and parent adjusts iframe accordingly
+			return Math.max(
+				window.innerHeight,
+				800
+			);
 		};
 
 		// Set dynamic height on the app container
 		const updateContainerHeight = () => {
 			const targetHeight = calculateTargetHeight();
 			const svelte = document.getElementById('svelte');
-			if (svelte && isInIframe) {
+			if (svelte) {
 				svelte.style.height = `${targetHeight}px`;
 				svelte.style.minHeight = `${targetHeight}px`;
 			}
+
+			// Also update body height for proper pym.js measurement
+			document.body.style.height = `${targetHeight}px`;
 		};
 
 		// Initialize pym.js child
@@ -74,17 +72,14 @@
 		};
 		window.addEventListener('resize', handleResize);
 
-		// Listen for parent viewport changes
-		if (isInIframe) {
-			// Update height when parent resizes the iframe
-			const resizeObserver = new ResizeObserver(() => {
-				updateContainerHeight();
-				if (pymChild) {
-					pymChild.sendHeight();
-				}
-			});
-			resizeObserver.observe(document.body);
-		}
+		// Update height when parent resizes the iframe
+		const resizeObserver = new ResizeObserver(() => {
+			updateContainerHeight();
+			if (pymChild) {
+				setTimeout(() => pymChild.sendHeight(), 50);
+			}
+		});
+		resizeObserver.observe(document.body);
 
 		// Return cleanup function
 		return () => {
