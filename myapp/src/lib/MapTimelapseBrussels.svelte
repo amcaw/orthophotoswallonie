@@ -6,7 +6,6 @@
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
 	import orthophotosBrusselsConfig from './orthophotosBrussels.json';
 	import YearPicker from './YearPicker.svelte';
-	import ShareButtons from './ShareButtons.svelte';
 
 	let beforeContainer: HTMLDivElement;
 	let afterContainer: HTMLDivElement;
@@ -28,10 +27,6 @@
 			if (afterMap) afterMap.triggerRepaint();
 		});
 	}
-
-	// Track map position for sharing
-	let currentCenter: { lng: number; lat: number } = { lng: 4.35, lat: 50.85 };
-	let currentZoom: number = 11;
 
 	// Helper to generate WMS tile URL based on ortho config
 	function getTileUrl(ortho: any, tileSize = 512): string {
@@ -765,10 +760,6 @@
 			if (!isDragging && !isSyncing) {
 				syncMaps(beforeMap, afterMap);
 			}
-			// Update position for share buttons
-			const center = beforeMap.getCenter();
-			currentCenter = { lng: center.lng, lat: center.lat };
-			currentZoom = beforeMap.getZoom();
 
 			// Throttled URL update to avoid saturating main thread
 			const now = performance.now();
@@ -895,14 +886,6 @@
 				<span class="slider-arrows">◄ ►</span>
 			</div>
 		</div>
-
-		<ShareButtons
-			lat={currentCenter.lat}
-			lng={currentCenter.lng}
-			zoom={currentZoom}
-			yearBefore={selectedBeforeGroupId}
-			yearAfter={selectedAfterGroupId}
-		/>
 	</div>
 
 	<!-- Year Pickers outside map-wrapper -->
