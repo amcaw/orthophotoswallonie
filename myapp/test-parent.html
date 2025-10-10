@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pym.js Parent Test Page</title>
+    <script src="https://pym.nprapps.org/pym.v1.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        #iframe-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>Pym.js Parent Test Page</h1>
+
+    <div class="info">
+        <p><strong>Instructions:</strong></p>
+        <ol>
+            <li>Start your Svelte app with <code>npm run dev</code></li>
+            <li>Update the URL below to match your dev server (default: http://localhost:5173)</li>
+            <li>The iframe will automatically adjust its height based on the content</li>
+        </ol>
+    </div>
+
+    <div id="iframe-container"></div>
+
+    <script>
+        // Initialize Pym.js Parent
+        // Change this URL to match your development server
+        const childUrl = 'http://localhost:5173';
+
+        const pymParent = new pym.Parent('iframe-container', childUrl, {
+            title: 'Occupation Sols Wallonie',
+            name: 'svelte-occupation-sols',
+            scrollwait: 100
+        });
+
+        // Optional: Listen for messages from the child
+        pymParent.onMessage('navigate', function(message) {
+            console.log('Navigation event:', message);
+        });
+
+        console.log('Pym.js parent initialized with URL:', childUrl);
+    </script>
+</body>
+</html>
