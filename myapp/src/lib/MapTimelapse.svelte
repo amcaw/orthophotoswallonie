@@ -11,6 +11,7 @@
 	let beforeContainer: HTMLDivElement;
 	let afterContainer: HTMLDivElement;
 	let mapWrapper: HTMLDivElement;
+	let geocoderContainer: HTMLDivElement;
 	let beforeMap: maplibregl.Map;
 	let afterMap: maplibregl.Map;
 	let sliderValue = 50;
@@ -576,7 +577,12 @@
 			showResultMarkers: false
 		});
 
-		beforeMap.addControl(geocoder, 'top-left');
+		// Add geocoder to custom overlay container instead of map
+		// This prevents it from being covered by the after map's z-index
+		const geocoderElement = geocoder.onAdd(beforeMap);
+		if (geocoderContainer) {
+			geocoderContainer.appendChild(geocoderElement);
+		}
 
 		// Fonction pour zoomer sur un résultat
 		const zoomToResult = (result: any) => {
@@ -877,6 +883,9 @@
 			style="clip-path: inset(0 0 0 calc({sliderValue}% - 0.5px))"
 		></div>
 
+		<!-- Geocoder overlay - outside map containers to avoid z-index issues -->
+		<div bind:this={geocoderContainer} class="geocoder-overlay"></div>
+
 		<div class="compare-slider" style="left: {sliderValue}%">
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
@@ -1006,12 +1015,22 @@
 		pointer-events: none;
 	}
 
-	/* Geocoder always visible, outside clipped area */
-	:global(.map-container.before .maplibregl-ctrl-top-left) {
-		z-index: 100 !important;
-		position: fixed !important;
-		top: 10px !important;
-		left: 10px !important;
+	/* Geocoder overlay - positioned above both maps */
+	.geocoder-overlay {
+		position: absolute;
+		top: 10px;
+		left: 10px;
+		z-index: 100;
+		pointer-events: none; /* Allow clicks to pass through the container */
+	}
+
+	:global(.geocoder-overlay .maplibregl-ctrl-geocoder) {
+		width: 600px;
+		max-width: calc(100vw - 20px);
+		pointer-events: auto !important; /* But enable clicks on the geocoder itself */
+	}
+
+	:global(.geocoder-overlay .maplibregl-ctrl-geocoder *) {
 		pointer-events: auto !important;
 	}
 
@@ -1019,20 +1038,8 @@
 		z-index: 100 !important;
 	}
 
-	:global(.maplibregl-ctrl-geocoder) {
-		z-index: 100 !important;
-		position: relative;
-		width: 600px;
-		max-width: calc(100vw - 20px);
-		pointer-events: auto !important;
-	}
-
-	:global(.maplibregl-ctrl-geocoder *) {
-		pointer-events: auto !important;
-	}
-
 	@media (max-width: 768px) {
-		:global(.maplibregl-ctrl-geocoder) {
+		:global(.geocoder-overlay .maplibregl-ctrl-geocoder) {
 			width: calc(100vw - 20px);
 		}
 	}
