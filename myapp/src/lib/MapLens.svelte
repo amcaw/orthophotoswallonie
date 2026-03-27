@@ -542,8 +542,14 @@
 	bind:this={lensWrapper}
 	on:pointerdown={onWrapperPointerDown}
 >
-	<div bind:this={afterContainer} class="map-container after" class:lens={isSwapped} style={isSwapped ? `clip-path: circle(${lensRadius}px at center)` : ''}></div>
-	<div bind:this={beforeContainer} class="map-container before" class:lens={!isSwapped} style={!isSwapped ? `clip-path: circle(${lensRadius}px at center)` : ''}></div>
+	<!-- Lens map: below (z-index 1), fully rendered, visible through the hole -->
+	<div bind:this={beforeContainer} class="map-container" class:lens-layer={!isSwapped} class:bg-layer={isSwapped}
+		style={isSwapped ? `-webkit-mask-image: radial-gradient(circle ${lensRadius}px at center, transparent ${lensRadius - 0.5}px, black ${lensRadius + 0.5}px); mask-image: radial-gradient(circle ${lensRadius}px at center, transparent ${lensRadius - 0.5}px, black ${lensRadius + 0.5}px);` : ''}
+	></div>
+	<!-- Background map: on top (z-index 2) with circular hole mask, receives ALL events -->
+	<div bind:this={afterContainer} class="map-container" class:bg-layer={!isSwapped} class:lens-layer={isSwapped}
+		style={!isSwapped ? `-webkit-mask-image: radial-gradient(circle ${lensRadius}px at center, transparent ${lensRadius - 0.5}px, black ${lensRadius + 0.5}px); mask-image: radial-gradient(circle ${lensRadius}px at center, transparent ${lensRadius - 0.5}px, black ${lensRadius + 0.5}px);` : ''}
+	></div>
 
 	<div
 		class="lens-border"
@@ -669,20 +675,14 @@
 		height: 100%;
 	}
 
-	.map-container.lens {
-		z-index: 2;
-		pointer-events: none;
-	}
-
-	/* Force pointer-events none on ALL descendants including MapLibre canvas,
-	   which sets pointer-events: auto internally. Without this, the lens map's
-	   canvas intercepts events and blocks the background map. */
-	.map-container.lens :global(*) {
-		pointer-events: none !important;
-	}
-
-	.map-container:not(.lens) {
+	/* Lens map: below, fully rendered, shows through the hole in bg-layer */
+	.map-container.lens-layer {
 		z-index: 1;
+	}
+
+	/* Background map: on top with a circular hole (mask), gets ALL pointer events */
+	.map-container.bg-layer {
+		z-index: 2;
 	}
 
 	.lens-border {
