@@ -1,13 +1,15 @@
 <script>
 	import MapTravelInTime from '$lib/MapTravelInTime.svelte';
+	import { walloniaConfig } from '$lib/regionConfig';
 </script>
 
 <svelte:head>
-	<title>Travel in Time - Orthophotos Wallonie</title>
+	<title>Voyage dans le temps - Orthophotos Wallonie</title>
+	<meta name="description" content="Voyagez dans le temps à travers les orthophotos de la Wallonie de 1971 à 2024 de manière animée." />
 </svelte:head>
 
 <div class="page-container">
-	<MapTravelInTime />
+	<MapTravelInTime region={walloniaConfig} />
 </div>
 
 <style>

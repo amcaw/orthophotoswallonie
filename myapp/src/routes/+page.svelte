@@ -2,14 +2,19 @@
 	import { base } from '$app/paths';
 </script>
 
+<svelte:head>
+	<title>Comparateur d'orthophotos Wallonie</title>
+	<meta name="description" content="Comparez les images aériennes de la Wallonie de 1971 à 2024. Mode loupe, avant-après et voyage dans le temps." />
+</svelte:head>
+
 <div class="home-container">
 	<h1>Comparateur d'orthophotos Wallonie</h1>
-	<p>Comparez les images aériennes de 1971 à 2023</p>
+	<p>Comparez les images aériennes de 1971 à 2024</p>
 
 	<div class="links">
 		<a href="{base}/lens" class="card">
 			<h2>Mode Loupe</h2>
-			<p>Comparez 1971 et 2023 avec une loupe circulaire</p>
+			<p>Comparez 1971 et 2024 avec une loupe circulaire</p>
 		</a>
 
 		<a href="{base}/timelapse" class="card">

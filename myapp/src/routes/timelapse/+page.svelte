@@ -1,13 +1,15 @@
 <script lang="ts">
 	import MapTimelapse from '$lib/MapTimelapse.svelte';
+	import { walloniaConfig } from '$lib/regionConfig';
 </script>
 
 <svelte:head>
-	<title>Timelapse - Comparaison d'orthophotos</title>
+	<title>Timelapse - Comparaison d'orthophotos Wallonie</title>
+	<meta name="description" content="Comparez les orthophotos de la Wallonie en mode avant-après avec un curseur interactif." />
 </svelte:head>
 
 <div class="page-container">
-	<MapTimelapse />
+	<MapTimelapse region={walloniaConfig} />
 </div>
 
 <style>

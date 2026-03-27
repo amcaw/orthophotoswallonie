@@ -1,9 +1,15 @@
 <script>
-	import MapTimelapseBrussels from '$lib/MapTimelapseBrussels.svelte';
+	import MapTimelapse from '$lib/MapTimelapse.svelte';
+	import { brusselsConfig } from '$lib/regionConfig';
 </script>
 
+<svelte:head>
+	<title>Timelapse - Comparaison d'orthophotos Bruxelles</title>
+	<meta name="description" content="Comparez les orthophotos de Bruxelles en mode avant-après avec un curseur interactif." />
+</svelte:head>
+
 <div class="page-container">
-	<MapTimelapseBrussels />
+	<MapTimelapse region={brusselsConfig} />
 </div>
 
 <style>

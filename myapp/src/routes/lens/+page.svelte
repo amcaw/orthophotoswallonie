@@ -1,9 +1,15 @@
 <script>
 	import MapLens from '$lib/MapLens.svelte';
+	import { walloniaConfig } from '$lib/regionConfig';
 </script>
 
+<svelte:head>
+	<title>Mode Loupe - Orthophotos Wallonie</title>
+	<meta name="description" content="Comparez les orthophotos de la Wallonie de 1971 à 2024 avec une loupe circulaire interactive." />
+</svelte:head>
+
 <div class="map-container">
-	<MapLens />
+	<MapLens region={walloniaConfig} />
 </div>
 
 <style>

@@ -4,30 +4,36 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
-	import orthophotosConfig from './orthophotos.json';
+	import type { RegionConfig, OrthoGroup } from './regionConfig';
+	import { groupOrthophotos, labelsSource, labelsLayer } from './regionConfig';
+	import { createGeocoderApi } from './geocoder';
 	import ShareButtons from './ShareButtons.svelte';
+
+	export let region: RegionConfig;
 
 	let mapContainer: HTMLDivElement;
 	let map: maplibregl.Map;
+	let showStreetNames = false;
 	let isPlaying = false;
 	let currentIndex = 0;
 	let animationInterval: number | null = null;
 	let progressPercent = 0;
 
 	// Track map position for sharing
-	let currentCenter: { lng: number; lat: number } = { lng: 4.5, lat: 50.5 };
-	let currentZoom: number = 8;
+	let currentCenter: { lng: number; lat: number } = { lng: region.defaultCenter.lng, lat: region.defaultCenter.lat };
+	let currentZoom: number = region.defaultZoom;
 
-	const walloniaBounds: [[number, number], [number, number]] = [
-		[2.75, 49.45],
-		[6.5, 50.85]
-	];
-
-	// MaxBounds élargi pour permettre un meilleur affichage au zoom out
-	const walloniaMaxBounds: [[number, number], [number, number]] = [
-		[2.0, 49.0],
-		[7.2, 51.3]
-	];
+	function toggleStreetNames() {
+		showStreetNames = !showStreetNames;
+		if (!map) return;
+		if (showStreetNames) {
+			if (!map.getSource('labels')) map.addSource('labels', labelsSource);
+			if (!map.getLayer('labels-layer')) map.addLayer(labelsLayer);
+		} else {
+			if (map.getLayer('labels-layer')) map.removeLayer('labels-layer');
+			if (map.getSource('labels')) map.removeSource('labels');
+		}
+	}
 
 	// Padding responsive pour tenir compte de la playbar en bas et de l'overlay année en haut
 	function getResponsivePadding(container: HTMLElement) {
@@ -50,60 +56,36 @@
 		};
 	}
 
-	// Fit "solide" sur les bounds de la Wallonie
-	function fitToWallonia(opts?: {animate?: boolean}) {
+	// Fit "solide" sur les bounds de la région
+	function fitToRegion(opts?: {animate?: boolean}) {
 		if (!map || !mapContainer) return;
 		const padding = getResponsivePadding(mapContainer);
 		map.resize(); // IMPORTANT: recalculer la taille du canvas avant le fit
 
 		// Calculate dynamic minZoom based on viewport width to ensure map always fits
 		const w = mapContainer.clientWidth || window.innerWidth;
-		const dynamicMinZoom = w < 640 ? 5.5 : w < 1024 ? 6 : w < 1300 ? 6.5 : 7;
+		const dynamicMinZoom = region.getDynamicMinZoom(w);
 
 		// Update map minZoom dynamically
 		map.setMinZoom(dynamicMinZoom);
 
-		// Add negative padding to zoom out more
+		// Adjust padding using region-specific adjustment
+		const adj = region.fitBoundsPaddingAdjust;
 		const adjustedPadding = {
-			top: padding.top - 50,
-			right: padding.right - 50,
-			bottom: padding.bottom - 50,
-			left: padding.left - 50
+			top: padding.top + adj,
+			right: padding.right + adj,
+			bottom: padding.bottom + adj,
+			left: padding.left + adj
 		};
 
-		map.fitBounds(walloniaBounds, {
+		map.fitBounds(region.bounds, {
 			padding: adjustedPadding,
 			duration: opts?.animate ? 400 : 0
 		});
 	}
 
-	// Group orthophotos by year, including 2022 with multiple seasons
-	const allOrthos = orthophotosConfig.orthophotos
-		.reduce((groups: any[], ortho: any) => {
-			const baseYear = ortho.year.split(' ')[0]; // "2022" from "2022 Printemps"
-			const existingGroup = groups.find((g) => g.year === baseYear);
-
-			if (existingGroup) {
-				existingGroup.layers.push(ortho);
-			} else {
-				groups.push({
-					year: baseYear,
-					displayYear: baseYear,
-					layers: [ortho]
-				});
-			}
-			return groups;
-		}, [])
-		// Sort layers within each group (Printemps before Été)
-		.map((g) => ({
-			...g,
-			layers: g.layers.slice().sort((a: any, b: any) => {
-				const order = (s: string) =>
-					/Printemps/i.test(s) ? 0 :
-					/Été|Ete/i.test(s) ? 1 : 2;
-				return order(a.year) - order(b.year);
-			})
-		}));
+	// Group orthophotos by year, including multi-season years
+	const allOrthos: OrthoGroup[] = groupOrthophotos(region.orthophotos);
 
 	function preloadAdjacentLayers() {
 		if (!map) return;
@@ -117,11 +99,9 @@
 			if (!map.getSource(ortho.id)) {
 				map.addSource(ortho.id, {
 					type: 'raster',
-					tiles: [
-						`${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`
-					],
+					tiles: [region.getTileUrl(ortho)],
 					tileSize: 256,
-					maxzoom: 18
+					maxzoom: region.maxSourceZoom
 				});
 			}
 
@@ -147,11 +127,9 @@
 			if (!map.getSource(ortho.id)) {
 				map.addSource(ortho.id, {
 					type: 'raster',
-					tiles: [
-						`${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`
-					],
+					tiles: [region.getTileUrl(ortho)],
 					tileSize: 256,
-					maxzoom: 18
+					maxzoom: region.maxSourceZoom
 				});
 			}
 
@@ -281,25 +259,28 @@
 	}
 
 
+	// True cross-fade: new layer fades in ON TOP of old layer, then old is removed.
+	// This avoids any white flash from the basemap showing through.
+	let updateLayerGeneration = 0;
+
 	function updateLayer(fadeMs = 0) {
 		if (!map) return;
 
+		const gen = ++updateLayerGeneration;
 		const currentGroup = allOrthos[currentIndex];
+		const newLayerIds = currentGroup.layers.map((o: any) => `${o.id}-layer`);
 
-		// Fade out all existing layers that aren't in current group
+		// Collect old layer ids that will be replaced
+		const oldLayerIds: string[] = [];
 		const style = map.getStyle();
 		if (style?.layers) {
 			for (const l of style.layers) {
-				if (!l.id.endsWith('-layer')) continue;
-				const belongsToCurrent = currentGroup.layers.some((o: any) => `${o.id}-layer` === l.id);
-				if (!belongsToCurrent && map.getLayer(l.id)) {
-					map.setPaintProperty(l.id, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
-					map.setPaintProperty(l.id, 'raster-opacity', 0);
-				}
+				if (!l.id.endsWith('-layer') || l.id === 'labels-layer') continue;
+				if (!newLayerIds.includes(l.id)) oldLayerIds.push(l.id);
 			}
 		}
 
-		// Add sources and layers for current group
+		// 1) Ensure new sources & layers exist (opacity 0, on top of old ones)
 		currentGroup.layers.forEach((ortho: any) => {
 			const srcId = ortho.id;
 			const layerId = `${ortho.id}-layer`;
@@ -307,11 +288,9 @@
 			if (!map.getSource(srcId)) {
 				map.addSource(srcId, {
 					type: 'raster',
-					tiles: [
-						`${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`
-					],
+					tiles: [region.getTileUrl(ortho)],
 					tileSize: 256,
-					maxzoom: 18
+					maxzoom: region.maxSourceZoom
 				});
 			}
 
@@ -322,76 +301,92 @@
 					source: srcId,
 					paint: {
 						'raster-opacity': 0,
+						'raster-opacity-transition': { duration: 0, delay: 0 },
 						'raster-fade-duration': 0
 					}
 				});
 			}
 		});
 
-		// Order layers (bottom to top)
-		currentGroup.layers.forEach((ortho: any) => {
-			const layerId = `${ortho.id}-layer`;
-			if (map.getLayer(layerId)) map.moveLayer(layerId);
+		// 2) Move new layers to top (above old layers), then labels on very top
+		newLayerIds.forEach((lid: string) => {
+			if (map.getLayer(lid)) map.moveLayer(lid);
 		});
+		if (showStreetNames && map.getLayer('labels-layer')) {
+			map.moveLayer('labels-layer');
+		}
 
-		// Fade in all current group layers - wait for tiles to load for better reliability
-		const layerIds = currentGroup.layers.map((ortho: any) => `${ortho.id}-layer`);
-		let loadedCount = 0;
-		const totalLayers = layerIds.length;
+		// 3) Cross-fade: fade new layers IN while old layers stay visible underneath
+		const doFade = () => {
+			if (gen !== updateLayerGeneration || !map) return;
 
-		const showLayers = () => {
-			layerIds.forEach((layerId: string) => {
-				if (map.getLayer(layerId)) {
-					map.setPaintProperty(layerId, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
-					map.setPaintProperty(layerId, 'raster-opacity', 1);
-				}
-			});
-		};
+			if (fadeMs > 0) {
+				// Fade new layers to 1 over fadeMs
+				newLayerIds.forEach((lid: string) => {
+					if (map.getLayer(lid)) {
+						map.setPaintProperty(lid, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
+						map.setPaintProperty(lid, 'raster-opacity', 1);
+					}
+				});
 
-		const checkAndShow = () => {
-			loadedCount++;
-			if (loadedCount >= totalLayers) {
-				showLayers();
+				// Old layers: stay fully visible during fade, then get removed
+				// This is the key difference — no white gap
+				setTimeout(() => {
+					if (gen !== updateLayerGeneration || !map) return;
+					oldLayerIds.forEach((lid) => {
+						if (map.getLayer(lid)) map.removeLayer(lid);
+						const srcId = lid.replace(/-layer$/, '');
+						if (map.getSource(srcId)) map.removeSource(srcId);
+					});
+				}, fadeMs + 50);
+			} else {
+				// Instant switch (no fade)
+				newLayerIds.forEach((lid: string) => {
+					if (map.getLayer(lid)) {
+						map.setPaintProperty(lid, 'raster-opacity-transition', { duration: 0, delay: 0 });
+						map.setPaintProperty(lid, 'raster-opacity', 1);
+					}
+				});
+				oldLayerIds.forEach((lid) => {
+					if (map.getLayer(lid)) map.removeLayer(lid);
+					const srcId = lid.replace(/-layer$/, '');
+					if (map.getSource(srcId)) map.removeSource(srcId);
+				});
 			}
 		};
 
-		// Listen for source data events
+		// 4) Try to wait for new tiles before fading, but don't block too long
+		let shown = false;
 		const onSourceData = (e: any) => {
-			if (e.isSourceLoaded && e.sourceId && currentGroup.layers.some((o: any) => o.id === e.sourceId)) {
-				checkAndShow();
+			if (shown || gen !== updateLayerGeneration) { map.off('sourcedata', onSourceData); return; }
+			const allLoaded = currentGroup.layers.every((o: any) => {
+				const src = map.getSource(o.id);
+				return src && map.isSourceLoaded(o.id);
+			});
+			if (allLoaded) {
+				shown = true;
+				map.off('sourcedata', onSourceData);
+				doFade();
 			}
 		};
 
 		map.on('sourcedata', onSourceData);
 
-		// Fallback: show after timeout even if not all tiles loaded
+		// Fallback timeout — don't wait forever
 		setTimeout(() => {
-			map.off('sourcedata', onSourceData);
-			showLayers();
-		}, fadeMs > 0 ? fadeMs + 1000 : 1000);
-
-		// Clean up old layers after fade completes
-		if (fadeMs > 0) {
-			setTimeout(() => {
-				const style = map?.getStyle();
-				if (!style?.layers) return;
-
-				for (const l of style.layers) {
-					if (!l.id.endsWith('-layer')) continue;
-					const belongsToCurrent = currentGroup.layers.some((o: any) => `${o.id}-layer` === l.id);
-					if (!belongsToCurrent) {
-						if (map.getLayer(l.id)) map.removeLayer(l.id);
-						const srcId = (l as any).source;
-						if (srcId && map.getSource(srcId)) map.removeSource(srcId);
-					}
-				}
-			}, fadeMs + 100);
-		}
+			if (!shown && gen === updateLayerGeneration) {
+				shown = true;
+				map.off('sourcedata', onSourceData);
+				doFade();
+			}
+		}, fadeMs > 0 ? Math.max(fadeMs, 1500) : 500);
 	}
 
 	onMount(async () => {
-		const geocoderCache = new Map<string, any>();
 		const firstGroup = allOrthos[0];
+
+		// Create geocoder API from region config
+		const { api: geocoderApi } = createGeocoderApi(region.geocoder);
 
 		// Parse hash for shared position and year (#lat,lng,zoom,yearId)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
@@ -437,11 +432,9 @@
 		firstGroup.layers.forEach((ortho: any) => {
 			initialSources[ortho.id] = {
 				type: 'raster',
-				tiles: [
-					`${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`
-				],
+				tiles: [region.getTileUrl(ortho)],
 				tileSize: 256,
-				maxzoom: 18
+				maxzoom: region.maxSourceZoom
 			};
 		});
 
@@ -466,112 +459,21 @@
 			},
 			// Ne pas passer bounds ici (certains navigateurs mobile font un fit trop tôt)
 			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : {}),
-			maxZoom: 16,
-			minZoom: 5, // Will be dynamically adjusted by fitToWallonia
-			maxBounds: walloniaMaxBounds,
+			maxZoom: region.maxZoom,
+			minZoom: region.minZoom, // Will be dynamically adjusted by fitToRegion
+			maxBounds: region.maxBounds,
 			preserveDrawingBuffer: true,
 			attributionControl: false
 		} as any);
 
 		map.addControl(new maplibregl.AttributionControl({
-			customAttribution: 'Made by <a href="https://bsky.app/profile/amcaw.bsky.social" target="_blank">@amcaw</a> - Service public de Wallonie (Licence CC-BY 4.0)'
+			customAttribution: region.attribution
 		}), 'bottom-right');
 
 		// Add geocoder for address search
-		const geocoderApi = {
-			forwardGeocode: async (config: any) => {
-				const query = (config.query ?? '').trim().toLowerCase();
-
-				// Check cache first
-				if (geocoderCache.has(query)) {
-					return geocoderCache.get(query);
-				}
-
-				const features: any[] = [];
-				try {
-					const q = encodeURIComponent(query);
-					if (!q) return { type: 'FeatureCollection' as const, features };
-
-					const url =
-						`https://nominatim.openstreetmap.org/search?` +
-						`q=${q}, Wallonie&format=geojson&polygon_geojson=1&addressdetails=1&countrycodes=be&limit=20`;
-
-					const response = await fetch(url, {
-						headers: {
-							'Accept-Language': 'fr'
-						}
-					});
-					const geojson = await response.json();
-
-					const walloniaProvinces = [
-						'Hainaut',
-						'Liège',
-						'Luxembourg',
-						'Namur',
-						'Brabant wallon'
-					];
-
-					for (const f of geojson.features ?? []) {
-						const state = f.properties?.address?.state;
-						const county = f.properties?.address?.county;
-
-						const isInWallonia =
-							state === 'Wallonie' ||
-							state === 'Région wallonne' ||
-							walloniaProvinces.some(
-								(province) => county?.includes(province) || state?.includes(province)
-							);
-
-						if (!isInWallonia) continue;
-
-						const rawBbox = f.bbox as [number, number, number, number] | undefined;
-						const bbox =
-							Array.isArray(rawBbox) && rawBbox.length === 4
-								? (rawBbox.map(Number) as [number, number, number, number])
-								: undefined;
-
-						let center: [number, number];
-						if (bbox) {
-							center = [bbox[0] + (bbox[2] - bbox[0]) / 2, bbox[1] + (bbox[3] - bbox[1]) / 2];
-						} else if (f.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates)) {
-							center = [Number(f.geometry.coordinates[0]), Number(f.geometry.coordinates[1])];
-						} else {
-							center = [4.4699, 50.5039];
-						}
-
-						features.push({
-							type: 'Feature' as const,
-							geometry: { type: 'Point' as const, coordinates: center },
-							place_name: f.properties?.display_name,
-							properties: { ...f.properties, bbox },
-							text: f.properties?.display_name,
-							place_type: ['place'],
-							center,
-							bbox
-						});
-					}
-				} catch (e) {
-					console.error('forwardGeocode error:', e);
-				}
-
-				const result = { type: 'FeatureCollection' as const, features };
-
-				// Cache the result (limit cache size to 50 entries)
-				if (geocoderCache.size >= 50) {
-					const firstKey = geocoderCache.keys().next().value;
-					if (firstKey !== undefined) {
-						geocoderCache.delete(firstKey);
-					}
-				}
-				geocoderCache.set(query, result);
-
-				return result;
-			}
-		};
-
 		const geocoder = new MaplibreGeocoder(geocoderApi, {
 			maplibregl: maplibregl,
-			placeholder: 'Cherchez une adresse en Wallonie',
+			placeholder: region.geocoder.placeholder,
 			flyTo: true,
 			showResultsWhileTyping: true,
 			marker: false,
@@ -630,7 +532,7 @@
 		// Fit lorsque la carte est totalement "idle" (style + sources + layers prêts) - skip if we have hash position
 		map.once('idle', () => {
 			if (!initialPosition) {
-				fitToWallonia({ animate: false });
+				fitToRegion({ animate: false });
 			}
 		});
 
@@ -647,7 +549,7 @@
 			if (newWidth !== lastWidth || newHeight !== lastHeight) {
 				lastWidth = newWidth;
 				lastHeight = newHeight;
-				fitToWallonia({ animate: false });
+				fitToRegion({ animate: false });
 			}
 		});
 		ro.observe(mapContainer);
@@ -717,6 +619,16 @@
 
 	<div class="year-overlay">{allOrthos[currentIndex].displayYear}</div>
 
+	<button class="street-names-btn" class:active={showStreetNames} on:click={toggleStreetNames} title="Noms de rues" aria-label="Afficher/masquer les noms de rues">
+		<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M12 3v18"/>
+			<path d="M6 7h8l2-2-2-2H6z" fill="currentColor" opacity="0.15"/>
+			<path d="M6 7h8l2-2-2-2H6"/>
+			<path d="M18 14H10l-2 2 2 2h8z" fill="currentColor" opacity="0.15"/>
+			<path d="M18 14H10l-2 2 2 2h8"/>
+		</svg>
+	</button>
+
 	<div class="share-wrapper-traveltime">
 		<ShareButtons
 			lat={currentCenter.lat}
@@ -727,7 +639,7 @@
 
 	<div class="playbar">
 		<div class="playbar-controls">
-			<button class="playbar-btn" on:click={togglePlayPause}>
+			<button class="playbar-btn" on:click={togglePlayPause} aria-label="Lecture/Pause">
 				{#if isPlaying}
 					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
 						<rect x="6" y="4" width="4" height="16" />
@@ -753,6 +665,7 @@
 						class:active={idx === currentIndex}
 						on:click={() => jumpToYear(idx)}
 						style="left: {position}%"
+						aria-label="Aller à l'année {group.displayYear}"
 					>
 						<span class="year-label">{group.displayYear}</span>
 					</button>
@@ -788,6 +701,39 @@
 		left: 0;
 		width: 100%;
 		height: 100%;
+	}
+
+	.street-names-btn {
+		position: absolute;
+		bottom: 120px;
+		right: 20px;
+		z-index: 10;
+		background: #fff;
+		border: none;
+		width: 29px;
+		height: 29px;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+		transition: all 0.2s;
+		color: #333;
+	}
+
+	.street-names-btn:hover {
+		background: #f2f2f2;
+	}
+
+	.street-names-btn.active {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.street-names-btn:focus-visible {
+		outline: 2px solid #3b82f6;
+		outline-offset: 2px;
 	}
 
 	.year-overlay {
@@ -855,6 +801,12 @@
 	.playbar-btn:hover {
 		background: #f0f9ff;
 		transform: scale(1.1);
+	}
+
+	.playbar-btn:focus-visible,
+	.year-marker:focus-visible {
+		outline: 2px solid #3b82f6;
+		outline-offset: 2px;
 	}
 
 

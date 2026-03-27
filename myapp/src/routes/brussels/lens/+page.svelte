@@ -1,9 +1,15 @@
 <script>
-	import MapLensBrussels from '$lib/MapLensBrussels.svelte';
+	import MapLens from '$lib/MapLens.svelte';
+	import { brusselsConfig } from '$lib/regionConfig';
 </script>
 
+<svelte:head>
+	<title>Mode Loupe - Orthophotos Bruxelles</title>
+	<meta name="description" content="Comparez les orthophotos de Bruxelles de 1930 à 2024 avec une loupe circulaire interactive." />
+</svelte:head>
+
 <div class="page-container">
-	<MapLensBrussels />
+	<MapLens region={brusselsConfig} />
 </div>
 
 <style>

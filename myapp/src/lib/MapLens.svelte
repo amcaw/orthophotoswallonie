@@ -4,29 +4,80 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
-	import orthophotosConfig from './orthophotos.json';
+	import type { RegionConfig } from './regionConfig';
+	import { positronSource, positronLayer, labelsSource, labelsLayer } from './regionConfig';
+	import { createGeocoderApi } from './geocoder';
 	import ShareButtons from './ShareButtons.svelte';
+
+	export let region: RegionConfig;
 
 	let beforeContainer: HTMLDivElement;
 	let afterContainer: HTMLDivElement;
 	let beforeMap: maplibregl.Map;
 	let afterMap: maplibregl.Map;
 	let isSwapped = false;
+	let showStreetNames = false;
+	let lensRadius = 200;
+	let isDraggingLens = false;
+	let lensWrapper: HTMLDivElement;
+	$: lensDiameter = lensRadius * 2;
+
+	let lensPointerId: number | null = null;
+
+	function onWrapperPointerDown(e: PointerEvent) {
+		if (!lensWrapper) return;
+		const rect = lensWrapper.getBoundingClientRect();
+		const cx = rect.left + rect.width / 2;
+		const cy = rect.top + rect.height / 2;
+		const dist = Math.sqrt((e.clientX - cx) ** 2 + (e.clientY - cy) ** 2);
+		// Only start drag if pointer is near the border ring (within 18px)
+		if (Math.abs(dist - lensRadius) > 18) return;
+		lensWrapper.setPointerCapture(e.pointerId);
+		lensPointerId = e.pointerId;
+		isDraggingLens = true;
+		e.preventDefault();
+		e.stopPropagation();
+	}
+
+	function onWrapperPointerMove(e: PointerEvent) {
+		if (!isDraggingLens || lensPointerId !== e.pointerId || !lensWrapper) return;
+		const rect = lensWrapper.getBoundingClientRect();
+		const cx = rect.left + rect.width / 2;
+		const cy = rect.top + rect.height / 2;
+		const dist = Math.sqrt((e.clientX - cx) ** 2 + (e.clientY - cy) ** 2);
+		const maxRadius = Math.min(rect.width, rect.height) / 2 - 10;
+		lensRadius = Math.max(60, Math.min(maxRadius, dist));
+	}
+
+	function onWrapperPointerUp(e: PointerEvent) {
+		if (isDraggingLens && lensPointerId === e.pointerId) {
+			try { lensWrapper.releasePointerCapture(e.pointerId); } catch {}
+			isDraggingLens = false;
+			lensPointerId = null;
+		}
+	}
+
+	function toggleStreetNames() {
+		showStreetNames = !showStreetNames;
+		const maps = [beforeMap, afterMap].filter(Boolean);
+		for (const m of maps) {
+			if (showStreetNames) {
+				if (!m.getSource('labels')) {
+					m.addSource('labels', labelsSource);
+				}
+				if (!m.getLayer('labels-layer')) {
+					m.addLayer(labelsLayer);
+				}
+			} else {
+				if (m.getLayer('labels-layer')) m.removeLayer('labels-layer');
+				if (m.getSource('labels')) m.removeSource('labels');
+			}
+		}
+	}
 
 	// Track map position for sharing
-	let currentCenter: { lng: number; lat: number } = { lng: 4.5, lat: 50.5 };
-	let currentZoom: number = 8;
-
-	const walloniaBounds: [[number, number], [number, number]] = [
-		[2.75, 49.45],
-		[6.5, 50.85]
-	];
-
-	// MaxBounds élargi pour permettre un meilleur affichage au zoom out
-	const walloniaMaxBounds: [[number, number], [number, number]] = [
-		[2.0, 49.0],
-		[7.2, 51.3]
-	];
+	let currentCenter: { lng: number; lat: number } = { lng: region.defaultCenter.lng, lat: region.defaultCenter.lat };
+	let currentZoom: number = region.defaultZoom;
 
 	function toggleSwap() {
 		isSwapped = !isSwapped;
@@ -34,7 +85,6 @@
 
 	onMount(() => {
 		let isSyncing = false;
-		const geocoderCache = new Map<string, any>();
 
 		// Parse hash for shared position (#lat,lng,zoom)
 		let initialPosition: { center: [number, number]; zoom: number } | undefined = undefined;
@@ -65,71 +115,83 @@
 		}
 
 		// Get orthophoto configs
-		const beforeOrtho = orthophotosConfig.orthophotos.find(o => o.id === 'ortho-1971')!;
-		const afterOrtho = orthophotosConfig.orthophotos.find(o => o.id === 'ortho-2023-ete')!;
+		const beforeOrtho = region.orthophotos.find(o => o.id === region.defaultLensBeforeId)!;
+		const afterOrtho = region.orthophotos.find(o => o.id === region.defaultLensAfterId)!;
 
 		// Setup initial position options
 		const mapPositionOptions: any = initialPosition
 			? { center: (initialPosition as any).center, zoom: (initialPosition as any).zoom }
-			: { bounds: walloniaBounds, fitBoundsOptions: { padding: -50 } };
+			: { bounds: region.bounds, fitBoundsOptions: { padding: region.fitBoundsPadding } };
 
-		// After map (2023) - visible partout
+		// Build sources and layers for after map
+		const afterSources: Record<string, any> = {};
+		const afterLayers: any[] = [];
+
+		if (region.hasPositronBasemap) {
+			afterSources['positron'] = positronSource;
+			afterLayers.push(positronLayer);
+		}
+
+		afterSources[afterOrtho.id] = {
+			type: 'raster',
+			tiles: [region.getTileUrl(afterOrtho)],
+			tileSize: 256
+		};
+		afterLayers.push({
+			id: `${afterOrtho.id}-layer`,
+			type: 'raster',
+			source: afterOrtho.id,
+			paint: {}
+		});
+
+		// Build sources and layers for before map
+		const beforeSources: Record<string, any> = {};
+		const beforeLayers: any[] = [];
+
+		if (region.hasPositronBasemap) {
+			beforeSources['positron'] = positronSource;
+			beforeLayers.push(positronLayer);
+		}
+
+		beforeSources[beforeOrtho.id] = {
+			type: 'raster',
+			tiles: [region.getTileUrl(beforeOrtho)],
+			tileSize: 256
+		};
+		beforeLayers.push({
+			id: `${beforeOrtho.id}-layer`,
+			type: 'raster',
+			source: beforeOrtho.id,
+			paint: {}
+		});
+
+		// After map - visible partout
 		afterMap = new maplibregl.Map({
 			container: afterContainer,
 			style: {
 				version: 8,
-				sources: {
-					[afterOrtho.id]: {
-						type: 'raster',
-						tiles: [
-							`${afterOrtho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&f=image`
-						],
-						tileSize: 256
-					}
-				},
-				layers: [
-					{
-						id: `${afterOrtho.id}-layer`,
-						type: 'raster',
-						source: afterOrtho.id,
-						paint: {}
-					}
-				]
+				sources: afterSources,
+				layers: afterLayers
 			},
 			...mapPositionOptions,
-			minZoom: 7,
-			maxZoom: 17,
-			maxBounds: walloniaMaxBounds,
+			minZoom: region.minZoom,
+			maxZoom: region.maxZoom,
+			maxBounds: region.maxBounds,
 			attributionControl: false
 		});
 
-		// Before map (1971) - visible dans le cercle
+		// Before map - visible dans le cercle
 		beforeMap = new maplibregl.Map({
 			container: beforeContainer,
 			style: {
 				version: 8,
-				sources: {
-					[beforeOrtho.id]: {
-						type: 'raster',
-						tiles: [
-							`${beforeOrtho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&f=image`
-						],
-						tileSize: 256
-					}
-				},
-				layers: [
-					{
-						id: `${beforeOrtho.id}-layer`,
-						type: 'raster',
-						source: beforeOrtho.id,
-						paint: {}
-					}
-				]
+				sources: beforeSources,
+				layers: beforeLayers
 			},
 			...mapPositionOptions,
-			minZoom: 7,
-			maxZoom: 17,
-			maxBounds: walloniaMaxBounds,
+			minZoom: region.minZoom,
+			maxZoom: region.maxZoom,
+			maxBounds: region.maxBounds,
 			attributionControl: false
 		});
 
@@ -148,130 +210,15 @@
 
 		// Add custom attribution
 		afterMap.addControl(new maplibregl.AttributionControl({
-			customAttribution: 'Made by <a href="https://bsky.app/profile/amcaw.bsky.social" target="_blank">@amcaw</a> - Service public de Wallonie (Licence CC-BY 4.0)'
+			customAttribution: region.attribution
 		}), 'bottom-right');
 
 		// Add geocoder for address search to both maps
-		const geocoderApi = {
-			forwardGeocode: async (config: any) => {
-				const query = (config.query ?? '').trim().toLowerCase();
-
-				// Check cache first
-				if (geocoderCache.has(query)) {
-					return geocoderCache.get(query);
-				}
-
-				const features: any[] = [];
-				try {
-					const q = encodeURIComponent(query);
-					if (!q) return { type: 'FeatureCollection' as const, features };
-
-					const url =
-						`https://nominatim.openstreetmap.org/search?` +
-						`q=${q}, Wallonie&format=geojson&polygon_geojson=1&addressdetails=1&countrycodes=be&limit=20`;
-
-					const response = await fetch(url, {
-						headers: {
-							'Accept-Language': 'fr'
-						}
-					});
-					const geojson = await response.json();
-
-					// Provinces wallonnes pour filtrage
-					const walloniaProvinces = ['Hainaut', 'Liège', 'Luxembourg', 'Namur', 'Brabant wallon'];
-
-					for (const f of geojson.features ?? []) {
-						// Filtre: garde seulement les résultats en Wallonie
-						const state = f.properties?.address?.state;
-						const county = f.properties?.address?.county;
-
-						const isInWallonia =
-							state === 'Wallonie' ||
-							state === 'Région wallonne' ||
-							walloniaProvinces.some(
-								(province) => county?.includes(province) || state?.includes(province)
-							);
-
-						if (!isInWallonia) continue;
-						// bbox peut être undefined ou des strings -> on normalise
-						const rawBbox = f.bbox as [number, number, number, number] | undefined;
-						const bbox =
-							Array.isArray(rawBbox) && rawBbox.length === 4
-								? (rawBbox.map(Number) as [number, number, number, number])
-								: undefined;
-
-						// centre: bbox si dispo, sinon géométrie
-						let center: [number, number];
-						if (bbox) {
-							center = [bbox[0] + (bbox[2] - bbox[0]) / 2, bbox[1] + (bbox[3] - bbox[1]) / 2];
-						} else if (f.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates)) {
-							center = [Number(f.geometry.coordinates[0]), Number(f.geometry.coordinates[1])];
-						} else {
-							// petit fallback: calcule un bbox approx de la géométrie si possible
-							const coords: number[][] = [];
-							const collect = (g: any) => {
-								if (!g) return;
-								if (g.type === 'Point') coords.push([+g.coordinates[0], +g.coordinates[1]]);
-								else if (g.type === 'LineString' || g.type === 'MultiPoint')
-									g.coordinates.forEach((c: any) => coords.push([+c[0], +c[1]]));
-								else if (g.type === 'Polygon' || g.type === 'MultiLineString')
-									g.coordinates.flat(1).forEach((c: any) => coords.push([+c[0], +c[1]]));
-								else if (g.type === 'MultiPolygon')
-									g.coordinates.flat(2).forEach((c: any) => coords.push([+c[0], +c[1]]));
-								else if (g.type === 'GeometryCollection')
-									(g.geometries || []).forEach(collect);
-							};
-							collect(f.geometry);
-
-							if (coords.length) {
-								const lons = coords.map((c) => c[0]);
-								const lats = coords.map((c) => c[1]);
-								const b: [number, number, number, number] = [
-									Math.min(...lons),
-									Math.min(...lats),
-									Math.max(...lons),
-									Math.max(...lats)
-								];
-								center = [b[0] + (b[2] - b[0]) / 2, b[1] + (b[3] - b[1]) / 2];
-							} else {
-								// dernier recours : Belgique
-								center = [4.4699, 50.5039];
-							}
-						}
-
-						features.push({
-							type: 'Feature' as const,
-							geometry: { type: 'Point' as const, coordinates: center },
-							place_name: f.properties?.display_name,
-							properties: { ...f.properties, bbox },
-							text: f.properties?.display_name,
-							place_type: ['place'],
-							center,
-							bbox
-						});
-					}
-				} catch (e) {
-					console.error('forwardGeocode error:', e);
-				}
-
-				const result = { type: 'FeatureCollection' as const, features };
-
-				// Cache the result (limit cache size to 50 entries)
-				if (geocoderCache.size >= 50) {
-					const firstKey = geocoderCache.keys().next().value;
-					if (firstKey !== undefined) {
-						geocoderCache.delete(firstKey);
-					}
-				}
-				geocoderCache.set(query, result);
-
-				return result;
-			}
-		};
+		const { api: geocoderApi, cache: geocoderCache } = createGeocoderApi(region.geocoder);
 
 		const geocoder = new MaplibreGeocoder(geocoderApi, {
 			maplibregl: maplibregl,
-			placeholder: 'Cherchez une adresse en Wallonie',
+			placeholder: region.geocoder.placeholder,
 			flyTo: false,
 			showResultsWhileTyping: true,
 			marker: false,
@@ -285,7 +232,7 @@
 
 		const geocoder2 = new MaplibreGeocoder(geocoderApi, {
 			maplibregl: maplibregl,
-			placeholder: 'Cherchez une adresse en Wallonie',
+			placeholder: region.geocoder.placeholder,
 			flyTo: false,
 			showResultsWhileTyping: true,
 			marker: false,
@@ -481,26 +428,63 @@
 	});
 </script>
 
-<div class="map-lens-wrapper">
-	<div bind:this={afterContainer} class="map-container after" class:lens={isSwapped}></div>
-	<div bind:this={beforeContainer} class="map-container before" class:lens={!isSwapped}></div>
-	<div class="lens-border"></div>
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div
+	class="map-lens-wrapper"
+	bind:this={lensWrapper}
+	on:pointerdown={onWrapperPointerDown}
+	on:pointermove={onWrapperPointerMove}
+	on:pointerup={onWrapperPointerUp}
+	on:pointercancel={onWrapperPointerUp}
+>
+	<div bind:this={afterContainer} class="map-container after" class:lens={isSwapped} style={isSwapped ? `clip-path: circle(${lensRadius}px at center)` : ''}></div>
+	<div bind:this={beforeContainer} class="map-container before" class:lens={!isSwapped} style={!isSwapped ? `clip-path: circle(${lensRadius}px at center)` : ''}></div>
 
-	<button class="swap-button" on:click={toggleSwap} title="Inverser les couches">
-		<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<polyline points="17 1 21 5 17 9"></polyline>
-			<path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-			<polyline points="7 23 3 19 7 15"></polyline>
-			<path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
-		</svg>
-	</button>
+	<div
+		class="lens-border"
+		class:dragging={isDraggingLens}
+		style="width: {lensDiameter}px; height: {lensDiameter}px;"
+	>
+		<span class="resize-handle top">
+			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 14 12 9 17 14"/></svg>
+		</span>
+		<span class="resize-handle right">
+			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="10 7 15 12 10 17"/></svg>
+		</span>
+		<span class="resize-handle bottom">
+			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 10 12 15 17 10"/></svg>
+		</span>
+		<span class="resize-handle left">
+			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="14 7 9 12 14 17"/></svg>
+		</span>
+	</div>
+
+	<div class="controls-left">
+		<button class="ctrl-button" class:active={showStreetNames} on:click={toggleStreetNames} title="Noms de rues" aria-label="Afficher/masquer les noms de rues">
+			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M12 3v18"/>
+				<path d="M6 7h8l2-2-2-2H6z" fill="currentColor" opacity="0.15"/>
+				<path d="M6 7h8l2-2-2-2H6"/>
+				<path d="M18 14H10l-2 2 2 2h8z" fill="currentColor" opacity="0.15"/>
+				<path d="M18 14H10l-2 2 2 2h8"/>
+			</svg>
+		</button>
+		<button class="ctrl-button" on:click={toggleSwap} title="Inverser les couches" aria-label="Inverser les couches avant/après">
+			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<polyline points="17 1 21 5 17 9"></polyline>
+				<path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+				<polyline points="7 23 3 19 7 15"></polyline>
+				<path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+			</svg>
+		</button>
+	</div>
 
 	<ShareButtons
 		lat={currentCenter.lat}
 		lng={currentCenter.lng}
 		zoom={currentZoom}
-		yearBefore="ortho-1971"
-		yearAfter="ortho-2023"
+		yearBefore={region.defaultLensBeforeId}
+		yearAfter={region.defaultLensAfterId}
 	/>
 
 </div>
@@ -533,7 +517,6 @@
 	}
 
 	.map-container.lens {
-		clip-path: circle(200px at center);
 		z-index: 2;
 		pointer-events: none;
 	}
@@ -547,20 +530,75 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		width: 400px;
-		height: 400px;
 		border: 3px solid white;
 		border-radius: 50%;
 		pointer-events: none;
 		z-index: 3;
 		box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+		cursor: nwse-resize;
+		touch-action: none;
 	}
 
-	.swap-button {
+	.lens-border.dragging {
+		border-color: #3b82f6;
+		box-shadow: 0 0 16px rgba(59, 130, 246, 0.4);
+	}
+
+	.lens-border.dragging .resize-handle {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.resize-handle {
+		position: absolute;
+		width: 22px;
+		height: 22px;
+		background: #fff;
+		border-radius: 4px;
+		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+		color: #333;
+		cursor: nwse-resize;
+	}
+
+	.resize-handle.top {
+		top: -11px;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	.resize-handle.bottom {
+		bottom: -11px;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	.resize-handle.left {
+		left: -11px;
+		top: 50%;
+		transform: translateY(-50%);
+	}
+
+	.resize-handle.right {
+		right: -11px;
+		top: 50%;
+		transform: translateY(-50%);
+	}
+
+	.controls-left {
 		position: absolute;
 		bottom: 150px;
 		left: 10px;
 		z-index: 1000;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.ctrl-button {
 		background: #fff;
 		border: none;
 		width: 29px;
@@ -575,13 +613,18 @@
 		color: #333;
 	}
 
-	.swap-button:hover {
+	.ctrl-button:hover {
 		background: #f2f2f2;
 	}
 
-	.swap-button svg {
-		width: 15px;
-		height: 15px;
+	.ctrl-button.active {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.ctrl-button:focus-visible {
+		outline: 2px solid #3b82f6;
+		outline-offset: 2px;
 	}
 
 	/* Position controls higher to avoid attribution overlap */
@@ -589,18 +632,9 @@
 		margin-bottom: 50px !important;
 	}
 
-	/* Mobile: smaller lens */
+	/* Mobile adjustments */
 	@media (max-width: 768px) {
-		.map-container.lens {
-			clip-path: circle(120px at center);
-		}
-
-		.lens-border {
-			width: 240px;
-			height: 240px;
-		}
-
-		.swap-button {
+		.controls-left {
 			bottom: 180px;
 		}
 

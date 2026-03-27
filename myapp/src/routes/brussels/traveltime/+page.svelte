@@ -1,9 +1,15 @@
 <script>
-	import MapTravelInTimeBrussels from '$lib/MapTravelInTimeBrussels.svelte';
+	import MapTravelInTime from '$lib/MapTravelInTime.svelte';
+	import { brusselsConfig } from '$lib/regionConfig';
 </script>
 
+<svelte:head>
+	<title>Voyage dans le temps - Orthophotos Bruxelles</title>
+	<meta name="description" content="Voyagez dans le temps à travers les orthophotos de Bruxelles de 1930 à 2024 de manière animée." />
+</svelte:head>
+
 <div class="page-container">
-	<MapTravelInTimeBrussels />
+	<MapTravelInTime region={brusselsConfig} />
 </div>
 
 <style>

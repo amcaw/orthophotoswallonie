@@ -101,6 +101,12 @@
       "year": "2023 Été",
       "label": "Orthophoto 2023 Été",
       "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2023_ETE/MapServer"
+    },
+    {
+      "id": "ortho-2024",
+      "year": "2024",
+      "label": "Orthophoto 2024",
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2024/MapServer"
     }
   ]
 }

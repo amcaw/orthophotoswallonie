@@ -4,8 +4,12 @@
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
-	import orthophotosConfig from './orthophotos.json';
+	import type { RegionConfig, OrthoGroup } from './regionConfig';
+	import { groupOrthophotos, positronSource, positronLayer, labelsSource, labelsLayer } from './regionConfig';
+	import { createGeocoderApi } from './geocoder';
 	import YearPicker from './YearPicker.svelte';
+
+	export let region: RegionConfig;
 
 	let beforeContainer: HTMLDivElement;
 	let afterContainer: HTMLDivElement;
@@ -15,6 +19,7 @@
 	let attributionContainer: HTMLDivElement;
 	let beforeMap: maplibregl.Map;
 	let afterMap: maplibregl.Map;
+	let showStreetNames = false;
 	let sliderValue = 50;
 	let isDragging = false;
 	let activePointerId: number | null = null;
@@ -26,6 +31,20 @@
 		sliderRAF = requestAnimationFrame(() => {
 			if (afterMap) afterMap.triggerRepaint();
 		});
+	}
+
+	function toggleStreetNames() {
+		showStreetNames = !showStreetNames;
+		const maps = [beforeMap, afterMap].filter(Boolean);
+		for (const m of maps) {
+			if (showStreetNames) {
+				if (!m.getSource('labels')) m.addSource('labels', labelsSource);
+				if (!m.getLayer('labels-layer')) m.addLayer(labelsLayer);
+			} else {
+				if (m.getLayer('labels-layer')) m.removeLayer('labels-layer');
+				if (m.getSource('labels')) m.removeSource('labels');
+			}
+		}
 	}
 
 	// --- Helpers for active layer tracking ---
@@ -40,16 +59,13 @@
 		return s;
 	}
 
-	// Helper to generate tile URL with size parameter
-	function getTileUrl(ortho: any, tileSize = 512): string {
-		return `${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=${tileSize},${tileSize}&format=png32&transparent=true&f=image`;
-	}
-
 	// Track active tile waits so we can cancel them during map movement
 	let activeTileWaits = new Set<() => void>();
 
 	// Wait for tiles in current viewport to be loaded
-	function waitForTiles(map: maplibregl.Map, layerIds: string[], timeout = 3000): Promise<void> {
+	// cancelOnMove: only true for the interactive (before) map; the after map
+	// receives synthetic moves from sync, so cancelling on move would cause gaps.
+	function waitForTiles(map: maplibregl.Map, layerIds: string[], timeout = 3000, cancelOnMove = true): Promise<void> {
 		return new Promise((resolve) => {
 			let done = false;
 			const finish = () => {
@@ -64,7 +80,6 @@
 			// Allow external cancellation (e.g., when user starts moving)
 			const cancel = () => {
 				if (!done) {
-					console.log('Tile wait cancelled - user is interacting');
 					finish();
 				}
 			};
@@ -79,21 +94,19 @@
 				if (sourcesReady && map.areTilesLoaded()) finish();
 			};
 
-			// Shorter timeout and also finish on movestart to avoid blocking navigation
 			const onMoveStart = () => {
-				console.log('Map movement detected - finishing tile wait early');
 				finish();
 			};
 
 			const to = setTimeout(finish, timeout);
 			const cleanup = () => {
 				map.off('idle', onIdle);
-				map.off('movestart', onMoveStart);
+				if (cancelOnMove) map.off('movestart', onMoveStart);
 				clearTimeout(to);
 			};
 
 			map.on('idle', onIdle);
-			map.on('movestart', onMoveStart);
+			if (cancelOnMove) map.on('movestart', onMoveStart);
 			// Try immediately if already ready
 			onIdle();
 		});
@@ -104,12 +117,14 @@
 		const srcId = ortho.id;
 		const layerId = `${ortho.id}-layer`;
 
+		if (!isMapAlive(map)) return layerId;
+
 		if (!map.getSource(srcId)) {
 			map.addSource(srcId, {
 				type: 'raster',
-				tiles: [getTileUrl(ortho, tileSize)],
+				tiles: [region.getTileUrl(ortho, tileSize)],
 				tileSize,
-				maxzoom: 18
+				maxzoom: region.maxSourceZoom
 			});
 		}
 
@@ -130,33 +145,8 @@
 		return layerId;
 	}
 
-	// Group orthophotos by year, including 2022 with multiple seasons
-	const groupedOrthos = orthophotosConfig.orthophotos
-		.reduce((groups: any[], ortho: any) => {
-			const baseYear = ortho.year.split(' ')[0]; // "2022" from "2022 Printemps"
-			const existing = groups.find((g) => g.year === baseYear);
-			if (existing) {
-				existing.layers.push(ortho);
-			} else {
-				groups.push({
-					id: baseYear,             // id stable = l'année
-					year: baseYear,
-					displayYear: baseYear,
-					layers: [ortho]
-				});
-			}
-			return groups;
-		}, [])
-		// Sort layers within each group (Printemps before Été)
-		.map((g) => ({
-			...g,
-			layers: g.layers.slice().sort((a: any, b: any) => {
-				const order = (s: string) =>
-					/Printemps/i.test(s) ? 0 :
-					/Été|Ete/i.test(s) ? 1 : 2;
-				return order(a.year) - order(b.year);
-			})
-		}));
+	// Group orthophotos by year using shared helper
+	const groupedOrthos: OrthoGroup[] = groupOrthophotos(region.orthophotos);
 
 	// Selected year groups
 	let selectedBeforeGroupId = groupedOrthos[0].id;
@@ -189,20 +179,41 @@
 		}
 	}
 
+	// Keyboard handler for slider accessibility
+	function onHandleKeydown(e: KeyboardEvent) {
+		if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			updateSliderValue(Math.max(0, sliderValue - 1));
+		} else if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			updateSliderValue(Math.min(100, sliderValue + 1));
+		}
+	}
+
 	// Track pending layer changes to prevent race conditions
 	const pendingLayerChanges = new WeakMap<maplibregl.Map, Promise<void>>();
 
+	// Check if map is still usable (not removed by HMR or cleanup)
+	function isMapAlive(m: maplibregl.Map): boolean {
+		try { return !!m.getStyle(); } catch { return false; }
+	}
+
 	// Preload and cross-fade to new year without showing blank canvas
 	async function addYearGroupToMap(targetMap: maplibregl.Map, group: any) {
+		if (!isMapAlive(targetMap)) return;
+
 		// Wait for any pending layer change to complete first
 		const existing = pendingLayerChanges.get(targetMap);
 		if (existing) {
-			console.log('Waiting for previous layer change to complete...');
 			await existing;
 		}
 
+		if (!isMapAlive(targetMap)) return;
+
 		// Create a promise for this layer change
 		const changePromise = (async () => {
+			if (!isMapAlive(targetMap)) return;
+
 			const activeSet = getActiveSet(targetMap);
 			const previousIds = [...activeSet];
 
@@ -211,17 +222,21 @@
 
 			// 2) Order layers (bottom to top) - do this without blocking
 			requestAnimationFrame(() => {
+				if (!isMapAlive(targetMap)) return;
 				newLayerIds.forEach((lid: string) => {
 					if (targetMap.getLayer(lid)) targetMap.moveLayer(lid);
 				});
 			});
 
-			// 3) Wait for tiles - but don't block navigation
-			// Reduce timeout to 1500ms so it doesn't wait too long
-			await waitForTiles(targetMap, newLayerIds, 1500);
+			// 3) Wait for tiles - only cancel on move for the interactive (before) map
+			const isInteractive = targetMap === beforeMap;
+			await waitForTiles(targetMap, newLayerIds, isInteractive ? 1500 : 4000, isInteractive);
+
+			if (!isMapAlive(targetMap)) return;
 
 			// 4) Cross-fade: new to 1, old to 0 (no gap)
 			requestAnimationFrame(() => {
+				if (!isMapAlive(targetMap)) return;
 				newLayerIds.forEach((lid: string) => {
 					if (targetMap.getLayer(lid)) {
 						targetMap.setPaintProperty(lid, 'raster-opacity', 1);
@@ -236,6 +251,7 @@
 
 			// 5) Deferred cleanup (after fade)
 			setTimeout(() => {
+				if (!isMapAlive(targetMap)) return;
 				previousIds.forEach((lid: string) => {
 					if (!newLayerIds.includes(lid)) {
 						const srcId = lid.replace(/-layer$/, '');
@@ -245,6 +261,10 @@
 					}
 				});
 				newLayerIds.forEach((lid: string) => activeSet.add(lid));
+				// Keep labels layer on top if active
+				if (showStreetNames && targetMap.getLayer('labels-layer')) {
+					targetMap.moveLayer('labels-layer');
+				}
 			}, 400);
 		})();
 
@@ -286,19 +306,9 @@
 
 	onMount(() => {
 		let isSyncing = false;
-		const geocoderCache = new Map<string, any>();
 
-		// Bounding box de la Wallonie (avec marge pour permettre un meilleur zoom out)
-		const walloniaBounds: [[number, number], [number, number]] = [
-			[2.75, 49.45], // Sud-Ouest (min lon, min lat)
-			[6.5, 50.85] // Nord-Est (max lon, max lat)
-		];
-
-		// MaxBounds élargi pour permettre un meilleur affichage au zoom out
-		const walloniaMaxBounds: [[number, number], [number, number]] = [
-			[2.0, 49.0],
-			[7.2, 51.3]
-		];
+		// Create geocoder API from region config
+		const { cache: geocoderCache, api: geocoderApi } = createGeocoderApi(region.geocoder);
 
 		// Parse hash for shared position and years (#lat,lng,zoom,beforeYear,afterYear)
 		let initialPosition: { center: [number, number]; zoom: number } | null = null;
@@ -345,26 +355,10 @@
 		const baseStyle = {
 			version: 8 as const,
 			sources: {
-				'positron': {
-					type: 'raster' as const,
-					tiles: [
-						'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-						'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-						'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
-					],
-					tileSize: 256,
-					attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
-				}
+				'positron': positronSource
 			},
 			layers: [
-				{
-					id: 'positron-layer',
-					type: 'raster' as const,
-					source: 'positron',
-					paint: {
-						'raster-opacity': 1
-					}
-				}
+				positronLayer
 			]
 		};
 
@@ -372,9 +366,9 @@
 		const beforeMapOptions: any = {
 			container: beforeContainer,
 			style: baseStyle as any,
-			minZoom: 7,
-			maxZoom: 17,
-			maxBounds: walloniaMaxBounds,
+			minZoom: region.minZoom,
+			maxZoom: region.maxZoom,
+			maxBounds: region.maxBounds,
 			attributionControl: false,
 			renderWorldCopies: false, // Avoid requests outside bounds
 			fadeDuration: 0 // We handle fading per layer
@@ -383,8 +377,8 @@
 			beforeMapOptions.center = (initialPosition as { center: [number, number]; zoom: number }).center;
 			beforeMapOptions.zoom = (initialPosition as { center: [number, number]; zoom: number }).zoom;
 		} else {
-			beforeMapOptions.bounds = walloniaBounds;
-			beforeMapOptions.fitBoundsOptions = { padding: -50 };
+			beforeMapOptions.bounds = region.bounds;
+			beforeMapOptions.fitBoundsOptions = { padding: region.fitBoundsPadding };
 		}
 		beforeMap = new maplibregl.Map(beforeMapOptions);
 
@@ -392,9 +386,9 @@
 		const afterMapOptions: any = {
 			container: afterContainer,
 			style: JSON.parse(JSON.stringify(baseStyle)), // Deep copy to avoid shared reference
-			minZoom: 7,
-			maxZoom: 17,
-			maxBounds: walloniaMaxBounds,
+			minZoom: region.minZoom,
+			maxZoom: region.maxZoom,
+			maxBounds: region.maxBounds,
 			interactive: false,
 			attributionControl: false,
 			renderWorldCopies: false,
@@ -404,8 +398,8 @@
 			afterMapOptions.center = (initialPosition as { center: [number, number]; zoom: number }).center;
 			afterMapOptions.zoom = (initialPosition as { center: [number, number]; zoom: number }).zoom;
 		} else {
-			afterMapOptions.bounds = walloniaBounds;
-			afterMapOptions.fitBoundsOptions = { padding: -50 };
+			afterMapOptions.bounds = region.bounds;
+			afterMapOptions.fitBoundsOptions = { padding: region.fitBoundsPadding };
 		}
 		afterMap = new maplibregl.Map(afterMapOptions);
 
@@ -442,7 +436,7 @@
 		}
 
 		const attributionControl = new maplibregl.AttributionControl({
-			customAttribution: 'Made by <a href="https://bsky.app/profile/amcaw.bsky.social" target="_blank">@amcaw</a> - Service public de Wallonie (Licence CC-BY 4.0)'
+			customAttribution: region.attribution
 		});
 		const attributionElement = attributionControl.onAdd(beforeMap);
 		if (attributionContainer) {
@@ -450,132 +444,9 @@
 		}
 
 		// Add geocoder for address search
-		const geocoderApi = {
-			forwardGeocode: async (config: any) => {
-				const query = (config.query ?? '').trim().toLowerCase();
-
-				// Check cache first
-				if (geocoderCache.has(query)) {
-					return geocoderCache.get(query);
-				}
-
-				const features: any[] = [];
-				try {
-					const q = encodeURIComponent(query);
-					if (!q) return { type: 'FeatureCollection' as const, features };
-
-					const url =
-						`https://nominatim.openstreetmap.org/search?` +
-						`q=${q}, Wallonie&format=geojson&polygon_geojson=1&addressdetails=1&countrycodes=be&limit=20`;
-
-					const response = await fetch(url, {
-						headers: {
-							'Accept-Language': 'fr'
-						}
-					});
-					const geojson = await response.json();
-
-					// Provinces wallonnes pour filtrage
-					const walloniaProvinces = [
-						'Hainaut',
-						'Liège',
-						'Luxembourg',
-						'Namur',
-						'Brabant wallon'
-					];
-
-					for (const f of geojson.features ?? []) {
-						// Filtre: garde seulement les résultats en Wallonie
-						const state = f.properties?.address?.state;
-						const county = f.properties?.address?.county;
-
-						const isInWallonia =
-							state === 'Wallonie' ||
-							state === 'Région wallonne' ||
-							walloniaProvinces.some(
-								(province) => county?.includes(province) || state?.includes(province)
-							);
-
-						if (!isInWallonia) continue;
-						// bbox peut être undefined ou des strings -> on normalise
-						const rawBbox = f.bbox as [number, number, number, number] | undefined;
-						const bbox =
-							Array.isArray(rawBbox) && rawBbox.length === 4
-								? (rawBbox.map(Number) as [number, number, number, number])
-								: undefined;
-
-						// centre: bbox si dispo, sinon géométrie
-						let center: [number, number];
-						if (bbox) {
-							center = [bbox[0] + (bbox[2] - bbox[0]) / 2, bbox[1] + (bbox[3] - bbox[1]) / 2];
-						} else if (f.geometry?.type === 'Point' && Array.isArray(f.geometry.coordinates)) {
-							center = [Number(f.geometry.coordinates[0]), Number(f.geometry.coordinates[1])];
-						} else {
-							// petit fallback: calcule un bbox approx de la géométrie si possible
-							const coords: number[][] = [];
-							const collect = (g: any) => {
-								if (!g) return;
-								if (g.type === 'Point') coords.push([+g.coordinates[0], +g.coordinates[1]]);
-								else if (g.type === 'LineString' || g.type === 'MultiPoint')
-									g.coordinates.forEach((c: any) => coords.push([+c[0], +c[1]]));
-								else if (g.type === 'Polygon' || g.type === 'MultiLineString')
-									g.coordinates.flat(1).forEach((c: any) => coords.push([+c[0], +c[1]]));
-								else if (g.type === 'MultiPolygon')
-									g.coordinates.flat(2).forEach((c: any) => coords.push([+c[0], +c[1]]));
-								else if (g.type === 'GeometryCollection')
-									(g.geometries || []).forEach(collect);
-							};
-							collect(f.geometry);
-
-							if (coords.length) {
-								const lons = coords.map((c) => c[0]);
-								const lats = coords.map((c) => c[1]);
-								const b: [number, number, number, number] = [
-									Math.min(...lons),
-									Math.min(...lats),
-									Math.max(...lons),
-									Math.max(...lats)
-								];
-								center = [b[0] + (b[2] - b[0]) / 2, b[1] + (b[3] - b[1]) / 2];
-							} else {
-								// dernier recours : Belgique
-								center = [4.4699, 50.5039];
-							}
-						}
-
-						features.push({
-							type: 'Feature' as const,
-							geometry: { type: 'Point' as const, coordinates: center },
-							place_name: f.properties?.display_name,
-							properties: { ...f.properties, bbox },
-							text: f.properties?.display_name,
-							place_type: ['place'],
-							center,
-							bbox
-						});
-					}
-				} catch (e) {
-					console.error('forwardGeocode error:', e);
-				}
-
-				const result = { type: 'FeatureCollection' as const, features };
-
-				// Cache the result (limit cache size to 50 entries)
-				if (geocoderCache.size >= 50) {
-					const firstKey = geocoderCache.keys().next().value;
-					if (firstKey !== undefined) {
-						geocoderCache.delete(firstKey);
-					}
-				}
-				geocoderCache.set(query, result);
-
-				return result;
-			}
-		};
-
 		const geocoder = new MaplibreGeocoder(geocoderApi, {
 			maplibregl: maplibregl,
-			placeholder: 'Cherchez une adresse en Wallonie',
+			placeholder: region.geocoder.placeholder,
 			flyTo: false,
 			showResultsWhileTyping: true,
 			marker: false,
@@ -735,16 +606,18 @@
 			if (isSyncing) return;
 			isSyncing = true;
 
-			target.jumpTo({
-				center: source.getCenter(),
-				zoom: source.getZoom(),
-				bearing: source.getBearing(),
-				pitch: source.getPitch()
-			});
-
-			requestAnimationFrame(() => {
-				isSyncing = false;
-			});
+			try {
+				target.jumpTo({
+					center: source.getCenter(),
+					zoom: source.getZoom(),
+					bearing: source.getBearing(),
+					pitch: source.getPitch()
+				});
+			} finally {
+				// Use microtask so isSyncing stays true during synchronous move events
+				// but resets before next user interaction
+				Promise.resolve().then(() => { isSyncing = false; });
+			}
 		};
 
 		// Debounced hash update for browser history
@@ -765,6 +638,7 @@
 				window.location.hash = newHash;
 			} else {
 				// Replace current history entry without adding new one
+				// Using replaceState is fine for hash-only changes
 				history.replaceState(null, '', `#${newHash}`);
 			}
 		};
@@ -888,7 +762,18 @@
 
 		<!-- Control overlays - outside map containers to avoid z-index issues -->
 		<div bind:this={geocoderContainer} class="geocoder-overlay"></div>
-		<div bind:this={navigationContainer} class="navigation-overlay"></div>
+		<div class="controls-stack">
+			<button class="street-names-btn" class:active={showStreetNames} on:click={toggleStreetNames} title="Noms de rues" aria-label="Afficher/masquer les noms de rues">
+				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M12 3v18"/>
+					<path d="M6 7h8l2-2-2-2H6z" fill="currentColor" opacity="0.15"/>
+					<path d="M6 7h8l2-2-2-2H6"/>
+					<path d="M18 14H10l-2 2 2 2h8z" fill="currentColor" opacity="0.15"/>
+					<path d="M18 14H10l-2 2 2 2h8"/>
+				</svg>
+			</button>
+			<div bind:this={navigationContainer} class="navigation-inner"></div>
+		</div>
 		<div bind:this={attributionContainer} class="attribution-overlay"></div>
 
 		<div class="compare-slider" style="left: {sliderValue}%">
@@ -897,10 +782,12 @@
 				class="slider-handle"
 				role="button"
 				tabindex="0"
+				aria-label="Curseur de comparaison avant/après"
 				on:pointerdown={onHandlePointerDown}
 				on:pointermove={onHandlePointerMove}
 				on:pointerup={onHandlePointerUp}
 				on:pointercancel={onHandlePointerUp}
+				on:keydown={onHandleKeydown}
 			>
 				<span class="slider-arrows">◄ ►</span>
 			</div>
@@ -1005,6 +892,11 @@
 		touch-action: none;
 	}
 
+	.slider-handle:focus-visible {
+		outline: 2px solid #3b82f6;
+		outline-offset: 2px;
+	}
+
 	.slider-arrows {
 		font-size: 14px;
 		color: #333;
@@ -1036,15 +928,51 @@
 		position: absolute !important;
 	}
 
-	.navigation-overlay {
+	.controls-stack {
 		position: absolute;
 		bottom: 50px;
 		left: 10px;
 		z-index: 100;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		align-items: flex-start;
+	}
+
+	.street-names-btn {
+		background: #fff;
+		border: none;
+		width: 29px;
+		height: 29px;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+		transition: all 0.2s;
+		color: #333;
+	}
+
+	.street-names-btn:hover {
+		background: #f2f2f2;
+	}
+
+	.street-names-btn.active {
+		background: #3b82f6;
+		color: white;
+	}
+
+	.street-names-btn:focus-visible {
+		outline: 2px solid #3b82f6;
+		outline-offset: 2px;
+	}
+
+	.navigation-inner {
 		pointer-events: none;
 	}
 
-	:global(.navigation-overlay .maplibregl-ctrl) {
+	:global(.navigation-inner .maplibregl-ctrl) {
 		pointer-events: auto !important;
 	}
 
@@ -1071,13 +999,13 @@
 	}
 
 	/* Vertical navigation controls */
-	:global(.navigation-overlay .maplibregl-ctrl-group button) {
+	:global(.navigation-inner .maplibregl-ctrl-group button) {
 		width: 29px !important;
 		height: 29px !important;
 	}
 
 	@media (max-width: 768px) {
-		.navigation-overlay {
+		.controls-stack {
 			bottom: 60px;
 		}
 	}

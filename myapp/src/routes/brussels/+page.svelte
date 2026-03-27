@@ -2,6 +2,11 @@
 	import { base } from '$app/paths';
 </script>
 
+<svelte:head>
+	<title>Comparateur d'orthophotos Bruxelles</title>
+	<meta name="description" content="Comparez les images aériennes de Bruxelles de 1930 à 2024. Mode loupe, avant-après et voyage dans le temps." />
+</svelte:head>
+
 <div class="home-container">
 	<h1>Comparateur d'orthophotos Bruxelles</h1>
 	<p>Comparez les images aériennes de 1930 à 2024</p>
