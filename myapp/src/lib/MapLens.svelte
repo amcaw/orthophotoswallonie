@@ -117,14 +117,17 @@
 		const dist = Math.sqrt((e.clientX - cx) ** 2 + (e.clientY - cy) ** 2);
 		// Only start drag if pointer is near the border ring (within 18px)
 		if (Math.abs(dist - lensRadius) > 18) return;
-		lensWrapper.setPointerCapture(e.pointerId);
 		lensPointerId = e.pointerId;
 		isDraggingLens = true;
 		e.preventDefault();
 		e.stopPropagation();
+		// Use window-level listeners so we never miss pointerup
+		window.addEventListener('pointermove', onWindowPointerMove);
+		window.addEventListener('pointerup', onWindowPointerUp);
+		window.addEventListener('pointercancel', onWindowPointerUp);
 	}
 
-	function onWrapperPointerMove(e: PointerEvent) {
+	function onWindowPointerMove(e: PointerEvent) {
 		if (!isDraggingLens || lensPointerId !== e.pointerId || !lensWrapper) return;
 		const rect = lensWrapper.getBoundingClientRect();
 		const cx = rect.left + rect.width / 2;
@@ -134,11 +137,13 @@
 		lensRadius = Math.max(60, Math.min(maxRadius, dist));
 	}
 
-	function onWrapperPointerUp(e: PointerEvent) {
+	function onWindowPointerUp(e: PointerEvent) {
 		if (isDraggingLens && lensPointerId === e.pointerId) {
-			try { lensWrapper.releasePointerCapture(e.pointerId); } catch {}
 			isDraggingLens = false;
 			lensPointerId = null;
+			window.removeEventListener('pointermove', onWindowPointerMove);
+			window.removeEventListener('pointerup', onWindowPointerUp);
+			window.removeEventListener('pointercancel', onWindowPointerUp);
 		}
 	}
 
@@ -522,6 +527,9 @@
 		return () => {
 			window.removeEventListener('resize', handleResize);
 			window.removeEventListener('click', handleWindowClick);
+			window.removeEventListener('pointermove', onWindowPointerMove);
+			window.removeEventListener('pointerup', onWindowPointerUp);
+			window.removeEventListener('pointercancel', onWindowPointerUp);
 			beforeMap.remove();
 			afterMap.remove();
 		};
@@ -533,9 +541,6 @@
 	class="map-lens-wrapper"
 	bind:this={lensWrapper}
 	on:pointerdown={onWrapperPointerDown}
-	on:pointermove={onWrapperPointerMove}
-	on:pointerup={onWrapperPointerUp}
-	on:pointercancel={onWrapperPointerUp}
 >
 	<div bind:this={afterContainer} class="map-container after" class:lens={isSwapped} style={isSwapped ? `clip-path: circle(${lensRadius}px at center)` : ''}></div>
 	<div bind:this={beforeContainer} class="map-container before" class:lens={!isSwapped} style={!isSwapped ? `clip-path: circle(${lensRadius}px at center)` : ''}></div>
