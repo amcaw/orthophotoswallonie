@@ -8,8 +8,18 @@
 	import { groupOrthophotos, positronSource, positronLayer, labelsSource, labelsLayer } from './regionConfig';
 	import { createGeocoderApi } from './geocoder';
 	import YearPicker from './YearPicker.svelte';
+	import Tutorial from './Tutorial.svelte';
 
 	export let region: RegionConfig;
+
+	const tutorialSteps = [
+		{ selector: '.geocoder-overlay', text: 'Recherchez une adresse ou un lieu pour naviguer rapidement sur la carte.', position: 'bottom' as const },
+		{ selector: '.navigation-inner', text: 'Utilisez ces boutons pour zoomer et dézoomer sur la carte.', position: 'right' as const },
+		{ selector: '.slider-handle', text: 'Glissez ce curseur vers la gauche ou la droite pour comparer les deux années.', position: 'left' as const },
+		{ selector: '.year-picker-wrapper[data-side="left"]', text: 'Cliquez ici pour choisir l\'année affichée à gauche.', position: 'right' as const },
+		{ selector: '.year-picker-wrapper[data-side="right"]', text: 'Cliquez ici pour choisir l\'année affichée à droite.', position: 'left' as const },
+		{ selector: '.street-names-btn', text: 'Activez l\'affichage des noms de rues par-dessus les photos aériennes.', position: 'right' as const },
+	];
 
 	let beforeContainer: HTMLDivElement;
 	let afterContainer: HTMLDivElement;
@@ -810,6 +820,8 @@
 	/>
 
 </div>
+
+<Tutorial steps={tutorialSteps} storageKey="tutorial-timelapse" />
 
 <style>
 	.timelapse-container {

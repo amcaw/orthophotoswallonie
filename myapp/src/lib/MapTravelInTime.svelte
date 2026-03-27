@@ -5,15 +5,22 @@
 	import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
 	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
 	import type { RegionConfig, OrthoGroup } from './regionConfig';
-	import { groupOrthophotos, labelsSource, labelsLayer } from './regionConfig';
+	import { groupOrthophotos } from './regionConfig';
 	import { createGeocoderApi } from './geocoder';
 	import ShareButtons from './ShareButtons.svelte';
+	import Tutorial from './Tutorial.svelte';
 
 	export let region: RegionConfig;
 
+	const tutorialSteps = [
+		{ selector: '.maplibregl-ctrl-geocoder', text: 'Recherchez une adresse ou un lieu pour naviguer rapidement sur la carte.', position: 'bottom' as const },
+		{ selector: '.maplibregl-ctrl-group', text: 'Utilisez ces boutons pour zoomer et dézoomer sur la carte.', position: 'right' as const },
+		{ selector: '.playbar-btn', text: 'Appuyez sur lecture pour voyager dans le temps à travers les différentes années.', position: 'top' as const },
+		{ selector: '.timeline-years', text: 'Cliquez sur une année pour y accéder directement.', position: 'top' as const },
+	];
+
 	let mapContainer: HTMLDivElement;
 	let map: maplibregl.Map;
-	let showStreetNames = false;
 	let isPlaying = false;
 	let currentIndex = 0;
 	let animationInterval: number | null = null;
@@ -22,18 +29,6 @@
 	// Track map position for sharing
 	let currentCenter: { lng: number; lat: number } = { lng: region.defaultCenter.lng, lat: region.defaultCenter.lat };
 	let currentZoom: number = region.defaultZoom;
-
-	function toggleStreetNames() {
-		showStreetNames = !showStreetNames;
-		if (!map) return;
-		if (showStreetNames) {
-			if (!map.getSource('labels')) map.addSource('labels', labelsSource);
-			if (!map.getLayer('labels-layer')) map.addLayer(labelsLayer);
-		} else {
-			if (map.getLayer('labels-layer')) map.removeLayer('labels-layer');
-			if (map.getSource('labels')) map.removeSource('labels');
-		}
-	}
 
 	// Padding responsive pour tenir compte de la playbar en bas et de l'overlay année en haut
 	function getResponsivePadding(container: HTMLElement) {
@@ -312,10 +307,6 @@
 		newLayerIds.forEach((lid: string) => {
 			if (map.getLayer(lid)) map.moveLayer(lid);
 		});
-		if (showStreetNames && map.getLayer('labels-layer')) {
-			map.moveLayer('labels-layer');
-		}
-
 		// 3) Cross-fade: fade new layers IN while old layers stay visible underneath
 		const doFade = () => {
 			if (gen !== updateLayerGeneration || !map) return;
@@ -619,16 +610,6 @@
 
 	<div class="year-overlay">{allOrthos[currentIndex].displayYear}</div>
 
-	<button class="street-names-btn" class:active={showStreetNames} on:click={toggleStreetNames} title="Noms de rues" aria-label="Afficher/masquer les noms de rues">
-		<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<path d="M12 3v18"/>
-			<path d="M6 7h8l2-2-2-2H6z" fill="currentColor" opacity="0.15"/>
-			<path d="M6 7h8l2-2-2-2H6"/>
-			<path d="M18 14H10l-2 2 2 2h8z" fill="currentColor" opacity="0.15"/>
-			<path d="M18 14H10l-2 2 2 2h8"/>
-		</svg>
-	</button>
-
 	<div class="share-wrapper-traveltime">
 		<ShareButtons
 			lat={currentCenter.lat}
@@ -675,6 +656,8 @@
 	</div>
 </div>
 
+<Tutorial steps={tutorialSteps} storageKey="tutorial-traveltime" />
+
 <style>
 	/* Geocoder width */
 	:global(.maplibregl-ctrl-geocoder) {
@@ -701,39 +684,6 @@
 		left: 0;
 		width: 100%;
 		height: 100%;
-	}
-
-	.street-names-btn {
-		position: absolute;
-		bottom: 120px;
-		right: 20px;
-		z-index: 10;
-		background: #fff;
-		border: none;
-		width: 29px;
-		height: 29px;
-		border-radius: 4px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
-		transition: all 0.2s;
-		color: #333;
-	}
-
-	.street-names-btn:hover {
-		background: #f2f2f2;
-	}
-
-	.street-names-btn.active {
-		background: #3b82f6;
-		color: white;
-	}
-
-	.street-names-btn:focus-visible {
-		outline: 2px solid #3b82f6;
-		outline-offset: 2px;
 	}
 
 	.year-overlay {
