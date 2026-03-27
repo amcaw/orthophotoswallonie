@@ -616,12 +616,8 @@
 
 	<div class="controls-left">
 		<button class="ctrl-button" class:active={showStreetNames} on:click={toggleStreetNames} title="Noms de rues" aria-label="Afficher/masquer les noms de rues">
-			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M12 3v18"/>
-				<path d="M6 7h8l2-2-2-2H6z" fill="currentColor" opacity="0.15"/>
-				<path d="M6 7h8l2-2-2-2H6"/>
-				<path d="M18 14H10l-2 2 2 2h8z" fill="currentColor" opacity="0.15"/>
-				<path d="M18 14H10l-2 2 2 2h8"/>
+			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 640 640" fill="currentColor">
+				<path d="M320.4 64C302.7 64 288.4 78.3 288.4 96L288.4 128L128.4 128C110.7 128 96.4 142.3 96.4 160L96.4 224C96.4 241.7 110.7 256 128.4 256L288.4 256L288.4 320L135 320C130.8 320 126.7 321.7 123.7 324.7L75.7 372.7C69.5 378.9 69.5 389.1 75.7 395.3L123.7 443.3C126.7 446.3 130.8 448 135 448L288.4 448L288.4 544C288.4 561.7 302.7 576 320.4 576C338.1 576 352.4 561.7 352.4 544L352.4 448L512.4 448C530.1 448 544.4 433.7 544.4 416L544.4 352C544.4 334.3 530.1 320 512.4 320L352.4 320L352.4 256L505.8 256C510 256 514.1 254.3 517.1 251.3L565.1 203.3C571.3 197.1 571.3 186.9 565.1 180.7L517.1 132.7C514.1 129.7 510 128 505.8 128L352.4 128L352.4 96C352.4 78.3 338.1 64 320.4 64z"/>
 			</svg>
 		</button>
 		<button class="ctrl-button" on:click={toggleSwap} title="Inverser les couches" aria-label="Inverser les couches avant/après">
@@ -676,6 +672,13 @@
 	.map-container.lens {
 		z-index: 2;
 		pointer-events: none;
+	}
+
+	/* Force pointer-events none on ALL descendants including MapLibre canvas,
+	   which sets pointer-events: auto internally. Without this, the lens map's
+	   canvas intercepts events and blocks the background map. */
+	.map-container.lens :global(*) {
+		pointer-events: none !important;
 	}
 
 	.map-container:not(.lens) {
