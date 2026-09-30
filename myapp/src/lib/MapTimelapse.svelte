@@ -366,7 +366,7 @@
 		position: relative;
 		width: 100%;
 		height: 100%;
-		min-height: 500px;
+		min-height: min(500px, 100dvh);
 		overflow: hidden;
 		font-family: var(--font-ui);
 	}

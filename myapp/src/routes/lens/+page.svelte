@@ -24,7 +24,7 @@
 		position: relative !important;
 		width: 100% !important;
 		height: 100% !important;
-		min-height: 600px !important;
+		min-height: min(600px, 100dvh) !important;
 		pointer-events: auto !important;
 		touch-action: auto !important;
 	}

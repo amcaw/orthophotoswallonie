@@ -34,7 +34,7 @@
 				return window.innerHeight;
 			} else {
 				// Standalone: use full viewport or minimum
-				return Math.max(window.innerHeight, 600);
+				return window.innerHeight;
 			}
 		};
 
