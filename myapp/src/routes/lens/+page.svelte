@@ -8,7 +8,7 @@
 	<meta name="description" content="Comparez les orthophotos de la Wallonie de 1971 à 2026 avec une loupe circulaire interactive." />
 </svelte:head>
 
-<div class="map-container">
+<div class="page-container">
 	<MapLens region={walloniaConfig} />
 </div>
 
@@ -20,7 +20,7 @@
 		pointer-events: auto !important;
 	}
 
-	.map-container {
+	.page-container {
 		position: relative !important;
 		width: 100% !important;
 		height: 100% !important;

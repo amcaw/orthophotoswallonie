@@ -14,6 +14,7 @@
 	onMount(() => {
 		// Check if we're in an iframe
 		const isInIframe = window.self !== window.top;
+		document.documentElement.classList.toggle('dans-iframe', isInIframe);
 
 		// Apply overflow control based on mode
 		if (!isInIframe) {
