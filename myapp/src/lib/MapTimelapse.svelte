@@ -305,13 +305,13 @@
 	</div>
 	<div
 		class="year-slot after-slot"
-		style={vertical ? `top: min(calc(${sliderValue}% + 14px), calc(100% - 190px))` : ''}
+		style={vertical ? `top: min(calc(${sliderValue}% + 14px), calc(100% - var(--chrome-bottom) - var(--ctrl-size) - 96px))` : ''}
 	>
 		<YearSelect
 			{entries}
 			selectedId={afterId}
 			label={vertical ? 'Année en bas' : 'Année à droite'}
-			align={vertical ? 'start' : 'end'}
+			align="end"
 			direction={vertical && sliderValue > 45 ? 'up' : 'down'}
 			loading={loadingAfter}
 			on:select={(e) => selectAfter(e.detail.id)}
@@ -409,11 +409,6 @@
 
 	.after-slot {
 		right: var(--chrome-gap);
-	}
-
-	.vertical .after-slot {
-		right: auto;
-		left: var(--chrome-gap);
 	}
 
 	.divider {
