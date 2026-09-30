@@ -35,6 +35,7 @@
 	let isSwapped = false;
 	let showStreetNames = false;
 	let lensRadius = 150;
+	let lensResizedByUser = false;
 	let isDraggingLens = false;
 	let lensPointerId: number | null = null;
 	let loadingBefore = false;
@@ -74,6 +75,7 @@
 		if (Math.abs(distanceFromCenter(e) - lensRadius) > ringTolerance()) return;
 		lensPointerId = e.pointerId;
 		isDraggingLens = true;
+		lensResizedByUser = true;
 		e.preventDefault();
 		e.stopPropagation();
 		window.addEventListener('pointermove', onWindowPointerMove);
@@ -215,7 +217,7 @@
 		wrapper.addEventListener('pointerdown', onWrapperPointerDown, true);
 
 		const observer = new ResizeObserver(() => {
-			fitLens();
+			fitLens(!lensResizedByUser);
 			beforeMap.resize();
 			afterMap.resize();
 		});
@@ -374,5 +376,9 @@
 		left: 50%;
 		z-index: 110;
 		transform: translateX(-50%);
+	}
+
+	.lens-label:has(:global(.year-select.open)) {
+		z-index: 130;
 	}
 </style>

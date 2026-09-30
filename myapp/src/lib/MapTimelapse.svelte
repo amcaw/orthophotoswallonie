@@ -399,6 +399,10 @@
 		top: calc(var(--chrome-gap) * 2 + var(--ctrl-size) + 12px);
 	}
 
+	.year-slot:has(:global(.year-select.open)) {
+		z-index: 130;
+	}
+
 	.before-slot {
 		left: var(--chrome-gap);
 	}
