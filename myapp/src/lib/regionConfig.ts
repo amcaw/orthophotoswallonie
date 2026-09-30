@@ -1,5 +1,8 @@
 import orthophotosWalloniaData from './orthophotos.json';
 import orthophotosBrusselsData from './orthophotosBrussels.json';
+import positronStyle from './positronStyle.json';
+import type { Map as MaplibreMap, RasterSourceSpecification, StyleSpecification } from 'maplibre-gl';
+import { retryUrl } from './tiles';
 
 export interface Orthophoto {
 	id: string;
@@ -9,13 +12,9 @@ export interface Orthophoto {
 	layer?: string;
 	service?: string;
 	crs?: string;
-}
-
-export interface OrthoGroup {
-	id: string;
-	year: string;
-	displayYear: string;
-	layers: Orthophoto[];
+	wmts?: boolean;
+	maxzoom?: number;
+	partial?: boolean;
 }
 
 export interface GeocoderConfig {
@@ -38,7 +37,7 @@ export interface RegionConfig {
 	orthophotos: Orthophoto[];
 	defaultLensBeforeId: string;
 	defaultLensAfterId: string;
-	getTileUrl: (ortho: Orthophoto, tileSize?: number) => string;
+	getTileUrl: (ortho: Orthophoto) => string;
 	hasPositronBasemap: boolean;
 	attribution: string;
 	geocoder: GeocoderConfig;
@@ -47,33 +46,15 @@ export interface RegionConfig {
 	fitBoundsPaddingAdjust: number;
 }
 
-// Group orthophotos by base year (handles seasons like "2022 Printemps", "2022 Été")
-export function groupOrthophotos(orthophotos: Orthophoto[]): OrthoGroup[] {
-	return orthophotos
-		.reduce((groups: OrthoGroup[], ortho: Orthophoto) => {
-			const baseYear = ortho.year.split(' ')[0];
-			const existing = groups.find((g) => g.year === baseYear);
-			if (existing) {
-				existing.layers.push(ortho);
-			} else {
-				groups.push({
-					id: baseYear,
-					year: baseYear,
-					displayYear: baseYear,
-					layers: [ortho]
-				});
-			}
-			return groups;
-		}, [])
-		.map((g) => ({
-			...g,
-			layers: g.layers.slice().sort((a, b) => {
-				const order = (s: string) =>
-					/Printemps/i.test(s) ? 0 :
-					/Été|Ete/i.test(s) ? 1 : 2;
-				return order(a.year) - order(b.year);
-			})
-		}));
+const TILE_SIZE = 256;
+
+export function orthoSource(region: RegionConfig, ortho: Orthophoto): RasterSourceSpecification {
+	return {
+		type: 'raster',
+		tiles: [region.getTileUrl(ortho)],
+		tileSize: TILE_SIZE,
+		maxzoom: ortho.maxzoom ?? region.maxSourceZoom
+	};
 }
 
 const WALLONIA_PROVINCES = ['Hainaut', 'Liège', 'Luxembourg', 'Namur', 'Brabant wallon'];
@@ -90,15 +71,14 @@ export const walloniaConfig: RegionConfig = {
 	fitBoundsPadding: -50,
 	orthophotos: orthophotosWalloniaData.orthophotos as Orthophoto[],
 	defaultLensBeforeId: 'ortho-1971',
-	defaultLensAfterId: 'ortho-2024',
+	defaultLensAfterId: 'ortho-2026-printemps',
 	hasPositronBasemap: false,
 	attribution: 'Made by <a href="https://bsky.app/profile/amcaw.bsky.social" target="_blank">@amcaw</a> - Service public de Wallonie (Licence CC-BY 4.0)',
-	maxSourceZoom: 20,
+	maxSourceZoom: 19,
 	fitBoundsPaddingAdjust: -50,
 	getDynamicMinZoom: (w: number) => w < 640 ? 5.5 : w < 1024 ? 6 : w < 1300 ? 6.5 : 7,
-	getTileUrl: (ortho: Orthophoto, tileSize = 256) => {
-		return `${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=${tileSize},${tileSize}&format=png32&transparent=true&f=image`;
-	},
+	getTileUrl: (ortho: Orthophoto) =>
+		retryUrl(`${ortho.url}/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=${TILE_SIZE},${TILE_SIZE}&format=jpgpng&transparent=true&f=image`),
 	geocoder: {
 		placeholder: 'Cherchez une adresse en Wallonie',
 		searchSuffix: 'Wallonie',
@@ -135,11 +115,12 @@ export const brusselsConfig: RegionConfig = {
 	maxSourceZoom: 20,
 	fitBoundsPaddingAdjust: 0,
 	getDynamicMinZoom: (w: number) => w < 640 ? 9 : w < 1024 ? 9.5 : 10,
-	getTileUrl: (ortho: Orthophoto, tileSize = 256) => {
-		if (ortho.service === 'urban-brussels' && ortho.crs === 'EPSG:31370') {
-			return `${orthophotosBrusselsData.wmsUrbanBrusselsUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=${ortho.layer}&CRS=EPSG:3857&STYLES=&WIDTH=${tileSize}&HEIGHT=${tileSize}&BBOX={bbox-epsg-3857}`;
+	getTileUrl: (ortho: Orthophoto) => {
+		if (ortho.wmts) {
+			return retryUrl(`${orthophotosBrusselsData.wmtsBaseUrl}/${ortho.layer}/default/EPSG:900913/EPSG:900913:{z}/{y}/{x}?format=image/png`);
 		}
-		return `${orthophotosBrusselsData.wmsBaseUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=${ortho.layer}&CRS=EPSG:3857&STYLES=&WIDTH=${tileSize}&HEIGHT=${tileSize}&BBOX={bbox-epsg-3857}`;
+		const base = ortho.service === 'urban-brussels' ? orthophotosBrusselsData.wmsUrbanBrusselsUrl : orthophotosBrusselsData.wmsBaseUrl;
+		return retryUrl(`${base}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/vnd.jpeg-png&TRANSPARENT=true&LAYERS=${ortho.layer}&CRS=EPSG:3857&STYLES=&WIDTH=${TILE_SIZE}&HEIGHT=${TILE_SIZE}&BBOX={bbox-epsg-3857}`);
 	},
 	geocoder: {
 		placeholder: 'Cherchez une adresse à Bruxelles',
@@ -160,39 +141,39 @@ export const brusselsConfig: RegionConfig = {
 	}
 };
 
-// Positron basemap style (shared between Brussels components)
-export const positronSource = {
-	type: 'raster' as const,
-	tiles: [
-		'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-		'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-		'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
-	],
-	tileSize: 256,
-	attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
-};
+const POSITRON_PREFIX = 'positron-';
+const LABELS_PREFIX = 'labels-';
 
-export const positronLayer = {
-	id: 'positron-layer',
-	type: 'raster' as const,
-	source: 'positron',
-	paint: { 'raster-opacity': 1 }
-};
+const labelLayers = (positronStyle.layers as any[])
+	.filter((layer) => layer.type === 'symbol')
+	.map((layer) => ({ ...layer, id: LABELS_PREFIX + layer.id }));
 
-// Labels-only overlay for street names on top of orthophotos
-export const labelsSource = {
-	type: 'raster' as const,
-	tiles: [
-		'https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png',
-		'https://b.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png',
-		'https://c.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'
-	],
-	tileSize: 256
-};
+export function createBaseStyle(withBasemap: boolean): StyleSpecification {
+	return {
+		version: 8,
+		glyphs: positronStyle.glyphs,
+		sprite: positronStyle.sprite,
+		sources: structuredClone(positronStyle.sources) as StyleSpecification['sources'],
+		layers: withBasemap
+			? (positronStyle.layers as any[]).map((layer) => ({ ...layer, id: POSITRON_PREFIX + layer.id }))
+			: []
+	};
+}
 
-export const labelsLayer = {
-	id: 'labels-layer',
-	type: 'raster' as const,
-	source: 'labels',
-	paint: { 'raster-opacity': 0.85 }
-};
+export function showLabels(map: MaplibreMap) {
+	for (const layer of labelLayers) {
+		if (!map.getLayer(layer.id)) map.addLayer(layer);
+	}
+}
+
+export function hideLabels(map: MaplibreMap) {
+	for (const layer of labelLayers) {
+		if (map.getLayer(layer.id)) map.removeLayer(layer.id);
+	}
+}
+
+export function raiseLabels(map: MaplibreMap) {
+	for (const layer of labelLayers) {
+		if (map.getLayer(layer.id)) map.moveLayer(layer.id);
+	}
+}

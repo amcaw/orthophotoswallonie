@@ -5,7 +5,7 @@
 
 <svelte:head>
 	<title>Voyage dans le temps - Orthophotos Wallonie</title>
-	<meta name="description" content="Voyagez dans le temps à travers les orthophotos de la Wallonie de 1971 à 2024 de manière animée." />
+	<meta name="description" content="Voyagez dans le temps à travers les orthophotos de la Wallonie de 1971 à 2026 de manière animée." />
 </svelte:head>
 
 <div class="page-container">

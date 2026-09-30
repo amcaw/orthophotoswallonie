@@ -4,31 +4,36 @@
       "id": "ferraris-1770",
       "year": "1770-1778",
       "label": "Carte de Ferraris",
-      "url": "https://geoservices.wallonie.be/arcgis/rest/services/CARTES_ANCIENNES/FERRARIS/MapServer"
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/CARTES_ANCIENNES/FERRARIS/MapServer",
+      "maxzoom": 17
     },
     {
       "id": "vdml-1850",
       "year": "1850",
       "label": "Carte Vandermaelen",
-      "url": "https://geoservices.wallonie.be/arcgis/rest/services/CARTES_ANCIENNES/VDML/MapServer"
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/CARTES_ANCIENNES/VDML/MapServer",
+      "maxzoom": 17
     },
     {
       "id": "ortho-1971",
       "year": "1971",
       "label": "Orthophoto 1971",
-      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_1971/MapServer"
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_1971/MapServer",
+      "maxzoom": 17
     },
     {
       "id": "ortho-1994-2000",
       "year": "1994-2000",
       "label": "Orthophoto 1994-2000",
-      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_1994_2000/MapServer"
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_1994_2000/MapServer",
+      "maxzoom": 18
     },
     {
       "id": "ortho-2001-2003",
       "year": "2001-2003",
       "label": "Orthophoto 2001-2003",
-      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2001_2003/MapServer"
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2001_2003/MapServer",
+      "maxzoom": 18
     },
     {
       "id": "ortho-2009-2010",
@@ -88,13 +93,15 @@
       "id": "ortho-2022-printemps",
       "year": "2022 Printemps",
       "label": "Orthophoto 2022 Printemps",
-      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2022_PRINTEMPS/MapServer"
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2022_PRINTEMPS/MapServer",
+      "partial": true
     },
     {
       "id": "ortho-2022-ete",
       "year": "2022 Été",
       "label": "Orthophoto 2022 Été",
-      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2022_ETE/MapServer"
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2022_ETE/MapServer",
+      "partial": true
     },
     {
       "id": "ortho-2023-ete",
@@ -107,6 +114,25 @@
       "year": "2024",
       "label": "Orthophoto 2024",
       "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2024/MapServer"
+    },
+    {
+      "id": "ortho-2025-printemps",
+      "year": "2025 Printemps",
+      "label": "Orthophoto 2025 Printemps",
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2025_PRINTEMPS/MapServer"
+    },
+    {
+      "id": "ortho-2025-ete",
+      "year": "2025 Été",
+      "label": "Orthophoto 2025 Été",
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2025_ETE/MapServer",
+      "partial": true
+    },
+    {
+      "id": "ortho-2026-printemps",
+      "year": "2026 Printemps",
+      "label": "Orthophoto 2026 Printemps",
+      "url": "https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2026_PRINTEMPS/MapServer"
     }
   ]
 }

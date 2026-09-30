@@ -68,7 +68,8 @@
       "id": "ortho-2004",
       "year": "2004",
       "label": "Orthophoto 2004",
-      "layer": "Ortho2004"
+      "layer": "Ortho2004",
+      "wmts": true
     },
     {
       "id": "ortho-2009",
@@ -80,7 +81,8 @@
       "id": "ortho-2012",
       "year": "2012",
       "label": "Orthophoto 2012",
-      "layer": "Ortho2012"
+      "layer": "Ortho2012",
+      "wmts": true
     },
     {
       "id": "ortho-2014",
@@ -104,19 +106,22 @@
       "id": "ortho-2017",
       "year": "2017",
       "label": "Orthophoto 2017",
-      "layer": "Ortho2017"
+      "layer": "Ortho2017",
+      "wmts": true
     },
     {
       "id": "ortho-2018",
       "year": "2018",
       "label": "Orthophoto 2018",
-      "layer": "Ortho2018"
+      "layer": "Ortho2018",
+      "wmts": true
     },
     {
       "id": "ortho-2019",
       "year": "2019",
       "label": "Orthophoto 2019",
-      "layer": "Ortho2019"
+      "layer": "Ortho2019",
+      "wmts": true
     },
     {
       "id": "ortho-2020",
@@ -128,13 +133,15 @@
       "id": "ortho-2021",
       "year": "2021",
       "label": "Orthophoto 2021",
-      "layer": "Ortho2021Ns"
+      "layer": "Ortho2021Ns",
+      "wmts": true
     },
     {
       "id": "ortho-2022",
       "year": "2022",
       "label": "Orthophoto 2022",
-      "layer": "Ortho2022Ns"
+      "layer": "Ortho2022Ns",
+      "wmts": true
     },
     {
       "id": "ortho-2023",
@@ -146,11 +153,13 @@
       "id": "ortho-2024",
       "year": "2024",
       "label": "Orthophoto 2024",
-      "layer": "Ortho2024Ns"
+      "layer": "Ortho2024Ns",
+      "wmts": true
     }
   ],
   "wmsBaseUrl": "https://geoservices-urbis.irisnet.be/geoserver/urbisgrid/ows",
   "wmsUrbanBrusselsUrl": "https://gis.urban.brussels/geoserver/ows",
+  "wmtsBaseUrl": "https://geoservices-urbis.irisnet.be/geowebcache/service/wmts/rest",
   "bounds": [[4.243, 50.764], [4.482, 50.913]],
   "boundsEPSG31370": [[645000, 6587000], [660000, 6603000]],
   "center": [4.3517, 50.8503],

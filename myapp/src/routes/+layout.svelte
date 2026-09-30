@@ -1,6 +1,7 @@
 <script>
 	import favicon from '$lib/assets/favicon.svg';
 	import CookieConsent from '$lib/CookieConsent.svelte';
+	import '$lib/ui/map-chrome.css';
 	import { onMount } from 'svelte';
 	import pym from 'pym.js';
 

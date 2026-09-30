@@ -2,868 +2,589 @@
 	import { onMount } from 'svelte';
 	import maplibregl from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import MaplibreGeocoder from '@maplibre/maplibre-gl-geocoder';
-	import '@maplibre/maplibre-gl-geocoder/dist/maplibre-gl-geocoder.css';
-	import type { RegionConfig, OrthoGroup } from './regionConfig';
-	import { groupOrthophotos } from './regionConfig';
-	import { createGeocoderApi } from './geocoder';
-	import ShareButtons from './ShareButtons.svelte';
-	import Tutorial from './Tutorial.svelte';
+	import './ui/map-chrome.css';
+	import type { RegionConfig } from './regionConfig';
+	import { createBaseStyle, showLabels, hideLabels, raiseLabels, orthoSource } from './regionConfig';
+	import { isMapAlive, registerTileRetry, whenSourcesLoaded } from './tiles';
+	import { buildYears, findOption, type YearEntry } from './years';
+	import { readHash, writeHash } from './urlState';
+	import SearchBox from './ui/SearchBox.svelte';
+	import ShareButton from './ui/ShareButton.svelte';
+	import ModeSwitcher from './ui/ModeSwitcher.svelte';
+	import StreetNamesButton from './ui/StreetNamesButton.svelte';
+	import Hint from './ui/Hint.svelte';
+	import { mountControls } from './ui/controls';
 
 	export let region: RegionConfig;
 
-	const tutorialSteps = [
-		{ selector: '.maplibregl-ctrl-geocoder', text: 'Recherchez une adresse ou un lieu pour naviguer rapidement sur la carte.', position: 'bottom' as const },
-		{ selector: '.maplibregl-ctrl-group', text: 'Utilisez ces boutons pour zoomer et dézoomer sur la carte.', position: 'right' as const },
-		{ selector: '.playbar-btn', text: 'Appuyez sur lecture pour voyager dans le temps à travers les différentes années.', position: 'top' as const },
-		{ selector: '.timeline-years', text: 'Cliquez sur une année pour y accéder directement.', position: 'top' as const },
-	];
+	const INTERVAL_MS = 2500;
+	const FADE_MS = 1300;
+	const BREAK_THRESHOLD = 30;
+	const BREAK_UNITS = 4;
+	const MIN_LABEL_SPACING = 44;
 
+	const entries: YearEntry[] = buildYears(region.orthophotos);
+	const place = region.name === 'brussels' ? 'Bruxelles' : 'la Wallonie';
+	const lastIndex = entries.length - 1;
+
+	const { positions, breaks } = (() => {
+		const raw = [0];
+		const breakAt: number[] = [];
+		for (let i = 1; i < entries.length; i++) {
+			const gap = entries[i].startYear - entries[i - 1].startYear;
+			if (gap > BREAK_THRESHOLD) breakAt.push(i);
+			raw.push(raw[i - 1] + (gap > BREAK_THRESHOLD ? BREAK_UNITS : Math.max(gap, 1)));
+		}
+		const total = raw[raw.length - 1] || 1;
+		const pct = raw.map((value) => (value / total) * 100);
+		return { positions: pct, breaks: breakAt.map((i) => (pct[i - 1] + pct[i]) / 2) };
+	})();
+
+	let wrapper: HTMLDivElement;
 	let mapContainer: HTMLDivElement;
+	let track: HTMLDivElement;
+	let navigationContainer: HTMLDivElement;
+	let attributionContainer: HTMLDivElement;
 	let map: maplibregl.Map;
 	let isPlaying = false;
-	let currentIndex = 0;
-	let animationInterval: number | null = null;
-	let progressPercent = 0;
+	let currentIndex = lastIndex;
+	let progress = positions[lastIndex];
+	let raf: number | null = null;
+	let trackWidth = 0;
+	let loading = false;
+	let showStreetNames = false;
+	let scrubbing = false;
 
-	// Track map position for sharing
-	let currentCenter: { lng: number; lat: number } = { lng: region.defaultCenter.lng, lat: region.defaultCenter.lat };
-	let currentZoom: number = region.defaultZoom;
+	$: current = entries[currentIndex];
+	$: currentMeta = current.title ?? [current.combined.season, current.combined.partial ? 'zone partielle' : null].filter(Boolean).join(' · ');
+	$: shareText = `${place[0].toUpperCase()}${place.slice(1)} vue du ciel en ${current.year}`;
+	$: labelled = (() => {
+		const pixel = (i: number) => (positions[i] / 100) * trackWidth;
+		const shown = [currentIndex];
+		const fits = (i: number) => shown.every((j) => Math.abs(pixel(i) - pixel(j)) >= MIN_LABEL_SPACING);
+		for (const i of [0, lastIndex, ...positions.keys()]) {
+			if (!shown.includes(i) && fits(i)) shown.push(i);
+		}
+		return new Set(shown);
+	})();
 
-	// Padding responsive pour tenir compte de la playbar en bas et de l'overlay année en haut
+	function saveView() {
+		if (!map) return;
+		const center = map.getCenter();
+		writeHash({ lat: center.lat, lng: center.lng, zoom: map.getZoom(), years: [entries[currentIndex].id] });
+	}
+
 	function getResponsivePadding(container: HTMLElement) {
 		const w = container.clientWidth || window.innerWidth;
 		const h = container.clientHeight || window.innerHeight;
-
-		// marges en px proportionnelles + minimas
 		const base = Math.round(Math.max(12, Math.min(w, h) * 0.03));
-
-		// sur mobile on réserve plus d'espace pour la playbar (bas)
-		const isSmall = w < 768;
-		const bottomExtra = isSmall ? 120 : 80; // playbar
-		const topExtra = isSmall ? 30 : 40;     // overlay année
-
-		return {
-			top: base + topExtra,
-			right: base + 10,
-			bottom: base + bottomExtra,
-			left: base + 10
-		};
+		return { top: base + 60, right: base + 10, bottom: base + 110, left: base + 10 };
 	}
 
-	// Fit "solide" sur les bounds de la région
-	function fitToRegion(opts?: {animate?: boolean}) {
+	function fitToRegion() {
 		if (!map || !mapContainer) return;
 		const padding = getResponsivePadding(mapContainer);
-		map.resize(); // IMPORTANT: recalculer la taille du canvas avant le fit
-
-		// Calculate dynamic minZoom based on viewport width to ensure map always fits
-		const w = mapContainer.clientWidth || window.innerWidth;
-		const dynamicMinZoom = region.getDynamicMinZoom(w);
-
-		// Update map minZoom dynamically
-		map.setMinZoom(dynamicMinZoom);
-
-		// Adjust padding using region-specific adjustment
+		map.resize();
+		map.setMinZoom(region.getDynamicMinZoom(mapContainer.clientWidth || window.innerWidth));
 		const adj = region.fitBoundsPaddingAdjust;
-		const adjustedPadding = {
-			top: padding.top + adj,
-			right: padding.right + adj,
-			bottom: padding.bottom + adj,
-			left: padding.left + adj
-		};
-
 		map.fitBounds(region.bounds, {
-			padding: adjustedPadding,
-			duration: opts?.animate ? 400 : 0
+			padding: { top: padding.top + adj, right: padding.right + adj, bottom: padding.bottom + adj, left: padding.left + adj },
+			duration: 0
 		});
 	}
 
-	// Group orthophotos by year, including multi-season years
-	const allOrthos: OrthoGroup[] = groupOrthophotos(region.orthophotos);
-
-	function preloadAdjacentLayers() {
-		if (!map) return;
-
-		// Preload next layer
-		const nextIndex = (currentIndex + 1) % allOrthos.length;
-		const nextGroup = allOrthos[nextIndex];
-
-		// Add sources and layers for all seasons in the next group
-		nextGroup.layers.forEach((ortho: any) => {
-			if (!map.getSource(ortho.id)) {
-				map.addSource(ortho.id, {
-					type: 'raster',
-					tiles: [region.getTileUrl(ortho)],
-					tileSize: 256,
-					maxzoom: region.maxSourceZoom
-				});
-			}
-
+	function ensureLayers(entry: YearEntry, opacity: number) {
+		entry.combined.layers.forEach((ortho) => {
+			if (!map.getSource(ortho.id)) map.addSource(ortho.id, orthoSource(region, ortho));
 			if (!map.getLayer(`${ortho.id}-layer`)) {
 				map.addLayer({
 					id: `${ortho.id}-layer`,
 					type: 'raster',
 					source: ortho.id,
 					paint: {
-						'raster-opacity': 0,
-						'raster-fade-duration': 0
-					}
-				});
-			}
-		});
-
-		// Preload previous layer
-		const prevIndex = (currentIndex - 1 + allOrthos.length) % allOrthos.length;
-		const prevGroup = allOrthos[prevIndex];
-
-		// Add sources and layers for all seasons in the previous group
-		prevGroup.layers.forEach((ortho: any) => {
-			if (!map.getSource(ortho.id)) {
-				map.addSource(ortho.id, {
-					type: 'raster',
-					tiles: [region.getTileUrl(ortho)],
-					tileSize: 256,
-					maxzoom: region.maxSourceZoom
-				});
-			}
-
-			if (!map.getLayer(`${ortho.id}-layer`)) {
-				map.addLayer({
-					id: `${ortho.id}-layer`,
-					type: 'raster',
-					source: ortho.id,
-					paint: {
-						'raster-opacity': 0,
-						'raster-fade-duration': 0
-					}
-				});
-			}
-		});
-	}
-
-	function togglePlayPause() {
-		if (isPlaying) {
-			pause();
-		} else {
-			play();
-		}
-	}
-
-	function play() {
-		if (!map) return;
-		isPlaying = true;
-
-		// Preload adjacent layers
-		preloadAdjacentLayers();
-
-		// Animate progress bar smoothly starting from current progress
-		const startTime = Date.now();
-		const startProgress = progressPercent / 100 * (allOrthos.length - 1); // Convert percent to float index
-		const interval = 2500; // Change layer every 2.5 seconds
-		const fadeMs = 1300; // Crossfade duration
-
-		const animate = () => {
-			if (!isPlaying) return;
-
-			const elapsed = Date.now() - startTime;
-			const progressInLayers = elapsed / interval;
-			const currentProgress = startProgress + progressInLayers;
-
-			// Stop at the end
-			if (currentProgress >= allOrthos.length - 1) {
-				currentIndex = allOrthos.length - 1;
-				progressPercent = 100;
-				pause();
-				return;
-			}
-
-			const targetIndex = Math.floor(currentProgress);
-
-			// Update progress bar smoothly
-			progressPercent = (currentProgress / (allOrthos.length - 1)) * 100;
-
-			// Change layer when reaching next index
-			if (targetIndex !== currentIndex) {
-				currentIndex = targetIndex;
-				updateLayer(fadeMs);
-				preloadAdjacentLayers();
-			}
-
-			animationInterval = window.requestAnimationFrame(animate);
-		};
-
-		animationInterval = window.requestAnimationFrame(animate);
-	}
-
-	function pause() {
-		isPlaying = false;
-		if (animationInterval) {
-			cancelAnimationFrame(animationInterval);
-			animationInterval = null;
-		}
-
-		// Update currentIndex to match the floored progress position for next play
-		const indexFromProgress = Math.floor((progressPercent / 100) * (allOrthos.length - 1));
-		if (indexFromProgress >= 0 && indexFromProgress < allOrthos.length) {
-			currentIndex = indexFromProgress;
-		}
-
-		// Don't call updateLayer() - keep the visual state as-is
-	}
-
-	// Reference to updateHash function (will be set in onMount)
-	let updateHashFn: ((pushToHistory: boolean) => void) | null = null;
-
-	function jumpToYear(index: number) {
-		// Pause if currently playing
-		const wasPlaying = isPlaying;
-		if (wasPlaying) {
-			pause();
-		}
-
-		// Smooth interpolation of progress bar
-		const targetPercent = (index / (allOrthos.length - 1)) * 100;
-		const startPercent = progressPercent;
-		const startTime = Date.now();
-		const duration = 300; // 300ms animation
-
-		const animateProgress = () => {
-			const elapsed = Date.now() - startTime;
-			const progress = Math.min(elapsed / duration, 1);
-
-			// Ease out cubic
-			const ease = 1 - Math.pow(1 - progress, 3);
-			progressPercent = startPercent + (targetPercent - startPercent) * ease;
-
-			if (progress < 1) {
-				requestAnimationFrame(animateProgress);
-			} else {
-				progressPercent = targetPercent;
-			}
-		};
-
-		currentIndex = index;
-		updateLayer();
-		animateProgress();
-
-		// Update hash immediately and add to history
-		if (updateHashFn) {
-			updateHashFn(true);
-		}
-	}
-
-
-	// True cross-fade: new layer fades in ON TOP of old layer, then old is removed.
-	// This avoids any white flash from the basemap showing through.
-	let updateLayerGeneration = 0;
-
-	function updateLayer(fadeMs = 0) {
-		if (!map) return;
-
-		const gen = ++updateLayerGeneration;
-		const currentGroup = allOrthos[currentIndex];
-		const newLayerIds = currentGroup.layers.map((o: any) => `${o.id}-layer`);
-
-		// Collect old layer ids that will be replaced
-		const oldLayerIds: string[] = [];
-		const style = map.getStyle();
-		if (style?.layers) {
-			for (const l of style.layers) {
-				if (!l.id.endsWith('-layer') || l.id === 'labels-layer') continue;
-				if (!newLayerIds.includes(l.id)) oldLayerIds.push(l.id);
-			}
-		}
-
-		// 1) Ensure new sources & layers exist (opacity 0, on top of old ones)
-		currentGroup.layers.forEach((ortho: any) => {
-			const srcId = ortho.id;
-			const layerId = `${ortho.id}-layer`;
-
-			if (!map.getSource(srcId)) {
-				map.addSource(srcId, {
-					type: 'raster',
-					tiles: [region.getTileUrl(ortho)],
-					tileSize: 256,
-					maxzoom: region.maxSourceZoom
-				});
-			}
-
-			if (!map.getLayer(layerId)) {
-				map.addLayer({
-					id: layerId,
-					type: 'raster',
-					source: srcId,
-					paint: {
-						'raster-opacity': 0,
+						'raster-opacity': opacity,
 						'raster-opacity-transition': { duration: 0, delay: 0 },
 						'raster-fade-duration': 0
 					}
 				});
 			}
 		});
+	}
 
-		// 2) Move new layers to top (above old layers), then labels on very top
-		newLayerIds.forEach((lid: string) => {
-			if (map.getLayer(lid)) map.moveLayer(lid);
-		});
-		// 3) Cross-fade: fade new layers IN while old layers stay visible underneath
-		const doFade = () => {
-			if (gen !== updateLayerGeneration || !map) return;
+	function preloadAdjacent() {
+		if (!map) return;
+		if (currentIndex < lastIndex) ensureLayers(entries[currentIndex + 1], 0);
+		if (currentIndex > 0) ensureLayers(entries[currentIndex - 1], 0);
+		if (showStreetNames) raiseLabels(map);
+	}
 
-			if (fadeMs > 0) {
-				// Fade new layers to 1 over fadeMs
-				newLayerIds.forEach((lid: string) => {
-					if (map.getLayer(lid)) {
-						map.setPaintProperty(lid, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
-						map.setPaintProperty(lid, 'raster-opacity', 1);
-					}
-				});
+	let generation = 0;
 
-				// Old layers: stay fully visible during fade, then get removed
-				// This is the key difference — no white gap
-				setTimeout(() => {
-					if (gen !== updateLayerGeneration || !map) return;
-					oldLayerIds.forEach((lid) => {
-						if (map.getLayer(lid)) map.removeLayer(lid);
-						const srcId = lid.replace(/-layer$/, '');
-						if (map.getSource(srcId)) map.removeSource(srcId);
-					});
-				}, fadeMs + 50);
-			} else {
-				// Instant switch (no fade)
-				newLayerIds.forEach((lid: string) => {
-					if (map.getLayer(lid)) {
-						map.setPaintProperty(lid, 'raster-opacity-transition', { duration: 0, delay: 0 });
-						map.setPaintProperty(lid, 'raster-opacity', 1);
-					}
-				});
+	function updateLayer(fadeMs = 0) {
+		if (!map) return;
+		const gen = ++generation;
+		const entry = entries[currentIndex];
+		const newLayerIds = entry.combined.layers.map((o) => `${o.id}-layer`);
+		const oldLayerIds = (map.getStyle()?.layers ?? [])
+			.map((l) => l.id)
+			.filter((id) => id.endsWith('-layer') && !newLayerIds.includes(id));
+
+		loading = true;
+		ensureLayers(entry, 0);
+		newLayerIds.forEach((lid) => map.getLayer(lid) && map.moveLayer(lid));
+		if (showStreetNames) raiseLabels(map);
+
+		const removeOld = (delayMs: number) => {
+			const fadeDone = new Promise((resolve) => setTimeout(resolve, delayMs));
+			Promise.all([whenSourcesLoaded(map, entry.combined.layers.map((o) => o.id)), fadeDone]).then(() => {
+				if (!map || !isMapAlive(map)) return;
+				const keep = entries[currentIndex].combined.layers.map((o) => `${o.id}-layer`);
 				oldLayerIds.forEach((lid) => {
-					if (map.getLayer(lid)) map.removeLayer(lid);
+					if (keep.includes(lid) || !map.getLayer(lid)) return;
+					map.removeLayer(lid);
 					const srcId = lid.replace(/-layer$/, '');
 					if (map.getSource(srcId)) map.removeSource(srcId);
 				});
-			}
-		};
-
-		// 4) Try to wait for new tiles before fading, but don't block too long
-		let shown = false;
-		const onSourceData = (e: any) => {
-			if (shown || gen !== updateLayerGeneration) { map.off('sourcedata', onSourceData); return; }
-			const allLoaded = currentGroup.layers.every((o: any) => {
-				const src = map.getSource(o.id);
-				return src && map.isSourceLoaded(o.id);
 			});
-			if (allLoaded) {
-				shown = true;
-				map.off('sourcedata', onSourceData);
-				doFade();
-			}
 		};
 
+		let shown = false;
+		const show = () => {
+			if (shown || gen !== generation || !map) return;
+			shown = true;
+			map.off('sourcedata', onSourceData);
+			loading = false;
+			newLayerIds.forEach((lid) => {
+				if (!map.getLayer(lid)) return;
+				map.setPaintProperty(lid, 'raster-opacity-transition', { duration: fadeMs, delay: 0 });
+				map.setPaintProperty(lid, 'raster-opacity', 1);
+			});
+			removeOld(fadeMs + 50);
+		};
+		const onSourceData = () => {
+			if (entry.combined.layers.every((o) => map.getSource(o.id) && map.isSourceLoaded(o.id))) show();
+		};
 		map.on('sourcedata', onSourceData);
-
-		// Fallback timeout — don't wait forever
-		setTimeout(() => {
-			if (!shown && gen === updateLayerGeneration) {
-				shown = true;
-				map.off('sourcedata', onSourceData);
-				doFade();
-			}
-		}, fadeMs > 0 ? Math.max(fadeMs, 1500) : 500);
+		setTimeout(show, fadeMs > 0 ? Math.max(fadeMs, 1500) : 500);
 	}
 
-	onMount(async () => {
-		const firstGroup = allOrthos[0];
+	function stopAnimation() {
+		isPlaying = false;
+		if (raf) cancelAnimationFrame(raf);
+		raf = null;
+	}
 
-		// Create geocoder API from region config
-		const { api: geocoderApi } = createGeocoderApi(region.geocoder);
+	function goTo(index: number, fadeMs = 0) {
+		stopAnimation();
+		const target = Math.max(0, Math.min(lastIndex, index));
+		progress = positions[target];
+		if (target === currentIndex) return;
+		currentIndex = target;
+		updateLayer(fadeMs);
+		preloadAdjacent();
+		saveView();
+	}
 
-		// Parse hash for shared position and year (#lat,lng,zoom,yearId)
-		let initialPosition: { center: [number, number]; zoom: number } | null = null;
-
-		// Function to parse hash
-		const parseHash = () => {
-			if (typeof window === 'undefined') return false;
-
-			const hash = window.location.hash.slice(1);
-			if (!hash) return false;
-
-			const parts = hash.split(',');
-			if (parts.length >= 3) {
-				const lat = parseFloat(parts[0]);
-				const lng = parseFloat(parts[1]);
-				const zoom = parseFloat(parts[2].replace('z', ''));
-				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
-					initialPosition = { center: [lng, lat], zoom };
-					// Restore year selection if provided
-					if (parts.length >= 4) {
-						const yearId = parts[3];
-						const yearIndex = allOrthos.findIndex(g => g.id === yearId);
-						if (yearIndex !== -1) {
-							currentIndex = yearIndex;
-							progressPercent = (yearIndex / (allOrthos.length - 1)) * 100;
-						}
-					}
-					return true;
+	function play() {
+		if (!map) return;
+		if (currentIndex === lastIndex) goTo(0);
+		isPlaying = true;
+		preloadAdjacent();
+		let last = performance.now();
+		let fraction = 0;
+		const step = (now: number) => {
+			if (!isPlaying) return;
+			fraction += (now - last) / INTERVAL_MS;
+			last = now;
+			if (fraction >= 1) {
+				fraction = 0;
+				currentIndex += 1;
+				updateLayer(FADE_MS);
+				preloadAdjacent();
+				saveView();
+				if (currentIndex === lastIndex) {
+					progress = positions[lastIndex];
+					stopAnimation();
+					return;
 				}
 			}
-			return false;
+			progress = positions[currentIndex] + (positions[currentIndex + 1] - positions[currentIndex]) * fraction;
+			raf = requestAnimationFrame(step);
 		};
+		raf = requestAnimationFrame(step);
+	}
 
-		// Try parsing hash with retries for production reliability
-		if (!parseHash()) {
-			await new Promise(resolve => setTimeout(resolve, 10));
-			parseHash();
+	function togglePlay() {
+		if (isPlaying) goTo(currentIndex);
+		else play();
+	}
+
+	function indexAt(clientX: number) {
+		const rect = track.getBoundingClientRect();
+		const pct = ((clientX - rect.left) / rect.width) * 100;
+		let best = 0;
+		positions.forEach((pos, i) => {
+			if (Math.abs(pos - pct) < Math.abs(positions[best] - pct)) best = i;
+		});
+		return best;
+	}
+
+	function onTrackPointerDown(e: PointerEvent) {
+		track.setPointerCapture(e.pointerId);
+		scrubbing = true;
+		goTo(indexAt(e.clientX));
+	}
+
+	function onTrackPointerMove(e: PointerEvent) {
+		if (!scrubbing) return;
+		const index = indexAt(e.clientX);
+		if (index !== currentIndex) goTo(index);
+	}
+
+	function onTrackPointerUp(e: PointerEvent) {
+		scrubbing = false;
+		try {
+			track.releasePointerCapture(e.pointerId);
+		} catch {}
+	}
+
+	function onTrackKeydown(e: KeyboardEvent) {
+		const moves: Record<string, number> = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 };
+		if (e.key in moves) goTo(currentIndex + moves[e.key]);
+		else if (e.key === 'Home') goTo(0);
+		else if (e.key === 'End') goTo(lastIndex);
+		else return;
+		e.preventDefault();
+	}
+
+	function onWindowKeydown(e: KeyboardEvent) {
+		const target = e.target as HTMLElement;
+		if (e.key !== ' ' || target.closest('input, textarea, button, a, [role="slider"]')) return;
+		e.preventDefault();
+		togglePlay();
+	}
+
+	function toggleStreetNames() {
+		showStreetNames = !showStreetNames;
+		if (!map) return;
+		if (showStreetNames) showLabels(map);
+		else hideLabels(map);
+	}
+
+	onMount(() => {
+		registerTileRetry();
+
+		const initial = readHash();
+		const initialOption = findOption(entries, initial?.years[0]);
+		if (initialOption) {
+			currentIndex = entries.findIndex((entry) => entry.year === initialOption.year);
+			progress = positions[currentIndex];
 		}
 
-		const initialSources: any = {};
-		const initialLayers: any[] = [];
-
-		firstGroup.layers.forEach((ortho: any) => {
-			initialSources[ortho.id] = {
-				type: 'raster',
-				tiles: [region.getTileUrl(ortho)],
-				tileSize: 256,
-				maxzoom: region.maxSourceZoom
-			};
-		});
-
-		firstGroup.layers.forEach((ortho: any) => {
-			initialLayers.push({
+		const style = createBaseStyle(false);
+		for (const ortho of entries[currentIndex].combined.layers) {
+			style.sources[ortho.id] = orthoSource(region, ortho);
+			style.layers.push({
 				id: `${ortho.id}-layer`,
 				type: 'raster',
 				source: ortho.id,
-				paint: {
-					'raster-opacity': 1,
-					'raster-fade-duration': 0
-				}
+				paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 }
 			});
-		});
+		}
 
 		map = new maplibregl.Map({
 			container: mapContainer,
-			style: {
-				version: 8,
-				sources: initialSources,
-				layers: initialLayers
-			},
-			// Ne pas passer bounds ici (certains navigateurs mobile font un fit trop tôt)
-			...(initialPosition ? { center: initialPosition.center, zoom: initialPosition.zoom } : {}),
+			style,
+			...(initial ? { center: [initial.lng, initial.lat] as [number, number], zoom: initial.zoom } : {}),
 			maxZoom: region.maxZoom,
-			minZoom: region.minZoom, // Will be dynamically adjusted by fitToRegion
+			minZoom: region.minZoom,
 			maxBounds: region.maxBounds,
-			preserveDrawingBuffer: true,
+			canvasContextAttributes: { preserveDrawingBuffer: true },
 			attributionControl: false
-		} as any);
-
-		map.addControl(new maplibregl.AttributionControl({
-			customAttribution: region.attribution
-		}), 'bottom-right');
-
-		// Add geocoder for address search
-		const geocoder = new MaplibreGeocoder(geocoderApi, {
-			maplibregl: maplibregl,
-			placeholder: region.geocoder.placeholder,
-			flyTo: true,
-			showResultsWhileTyping: true,
-			marker: false,
-			debounceSearch: 400,
-			minLength: 2,
-			showResultMarkers: false
 		});
 
-		map.addControl(geocoder, 'top-left');
-		map.addControl(new maplibregl.NavigationControl(), 'top-left');
+		mountControls(map, navigationContainer, attributionContainer, region.attribution);
 
-		// Debounced hash update for browser history
-		let hashUpdateTimeout: number | null = null;
-		let lastHashUpdate = '';
-
-		const updateHash = (pushToHistory: boolean = false) => {
-			if (typeof window === 'undefined' || !map) return;
-
-			const center = map.getCenter();
-			const zoom = map.getZoom();
-			const yearId = allOrthos[currentIndex]?.id;
-			const newHash = yearId
-				? `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z,${yearId}`
-				: `${center.lat.toFixed(6)},${center.lng.toFixed(6)},${zoom.toFixed(2)}z`;
-
-			if (newHash === lastHashUpdate) return;
-			lastHashUpdate = newHash;
-
-			if (pushToHistory) {
-				window.location.hash = newHash;
-			} else {
-				// Replace current history entry without adding new one
-				history.replaceState(null, '', `#${newHash}`);
-			}
-		};
-
-		// Make updateHash available to jumpToYear function
-		updateHashFn = updateHash;
-
-		// Track map position for share buttons and update hash
-		map.on('move', () => {
-			const center = map.getCenter();
-			currentCenter = { lng: center.lng, lat: center.lat };
-			currentZoom = map.getZoom();
-
-			// Update URL immediately without adding to history
-			updateHash(false);
-
-			// Debounce: only add to history after user stops moving for 1 second
-			if (hashUpdateTimeout) clearTimeout(hashUpdateTimeout);
-			hashUpdateTimeout = window.setTimeout(() => {
-				updateHash(true);
-			}, 1000);
-		});
-
-		// Fit lorsque la carte est totalement "idle" (style + sources + layers prêts) - skip if we have hash position
+		map.on('moveend', saveView);
 		map.once('idle', () => {
-			if (!initialPosition) {
-				fitToRegion({ animate: false });
-			}
+			if (!initial) fitToRegion();
 		});
 
-		// Track container size to only refit on actual resize, not other events
-		let lastWidth = mapContainer.clientWidth;
-		let lastHeight = mapContainer.clientHeight;
-
-		// ResizeObserver pour toute variation de taille du conteneur (layout, split view, etc.)
-		const ro = new ResizeObserver(() => {
-			const newWidth = mapContainer.clientWidth;
-			const newHeight = mapContainer.clientHeight;
-
-			// Only refit if container size actually changed
-			if (newWidth !== lastWidth || newHeight !== lastHeight) {
-				lastWidth = newWidth;
-				lastHeight = newHeight;
-				fitToRegion({ animate: false });
-			}
+		let lastSize = `${mapContainer.clientWidth}x${mapContainer.clientHeight}`;
+		const observer = new ResizeObserver(() => {
+			trackWidth = track?.clientWidth ?? 0;
+			const size = `${mapContainer.clientWidth}x${mapContainer.clientHeight}`;
+			if (size === lastSize) return;
+			lastSize = size;
+			if (initial) map.resize();
+			else fitToRegion();
 		});
-		ro.observe(mapContainer);
-
-		// Initial resize after a short delay to ensure container is properly sized
-		let resizeTimeout: number | null = null;
-		const throttledResize = () => {
-			if (resizeTimeout) return; // Already scheduled
-
-			resizeTimeout = window.setTimeout(() => {
-				if (map) map.resize();
-				resizeTimeout = null;
-			}, 250);
-		};
-
-		setTimeout(() => map.resize(), 100);
-
-		window.addEventListener('resize', throttledResize);
-		window.addEventListener('orientationchange', throttledResize);
-
-		// Listen for hash changes (browser back/forward)
-		const handleHashChange = () => {
-			if (typeof window === 'undefined') return;
-
-			const hash = window.location.hash.slice(1);
-			if (!hash) return;
-
-			const parts = hash.split(',');
-			if (parts.length >= 3) {
-				const lat = parseFloat(parts[0]);
-				const lng = parseFloat(parts[1]);
-				const zoom = parseFloat(parts[2].replace('z', ''));
-
-				if (!isNaN(lat) && !isNaN(lng) && !isNaN(zoom)) {
-					// Update map position
-					if (map) {
-						map.flyTo({ center: [lng, lat], zoom, duration: 1000 });
-					}
-
-					// Update year selection if provided
-					if (parts.length >= 4) {
-						const yearId = parts[3];
-						const yearIndex = allOrthos.findIndex(g => g.id === yearId);
-						if (yearIndex !== -1 && yearIndex !== currentIndex) {
-							jumpToYear(yearIndex);
-						}
-					}
-				}
-			}
-		};
-
-		window.addEventListener('hashchange', handleHashChange);
+		observer.observe(wrapper);
+		trackWidth = track.clientWidth;
 
 		return () => {
-			pause();
-			ro.disconnect();
-			window.removeEventListener('resize', throttledResize);
-			window.removeEventListener('orientationchange', throttledResize);
-			window.removeEventListener('hashchange', handleHashChange);
+			stopAnimation();
+			observer.disconnect();
 			map.remove();
 		};
 	});
 </script>
 
-<div class="travel-container">
+<svelte:window on:keydown={onWindowKeydown} />
+
+<div class="travel" bind:this={wrapper}>
 	<div class="map-container" bind:this={mapContainer}></div>
 
-	<div class="year-overlay">{allOrthos[currentIndex].displayYear}</div>
-
-	<div class="share-wrapper-traveltime">
-		<ShareButtons
-			lat={currentCenter.lat}
-			lng={currentCenter.lng}
-			zoom={currentZoom}
-		/>
+	<div class="year-overlay" class:loading aria-live="polite">
+		<span class="year">{current.year}</span>
+		{#if currentMeta}<span class="meta">{currentMeta}</span>{/if}
 	</div>
 
+	<div class="chrome chrome-top-left">
+		<SearchBox {map} config={region.geocoder} />
+	</div>
+	<div class="chrome chrome-top-right">
+		<ModeSwitcher {region} current="traveltime" />
+	</div>
+	<div class="chrome chrome-bottom-left">
+		<StreetNamesButton pressed={showStreetNames} on:toggle={toggleStreetNames} />
+		<div bind:this={navigationContainer}></div>
+	</div>
+	<div class="chrome chrome-bottom-right">
+		<ShareButton text={shareText} />
+	</div>
+	<div class="chrome chrome-attribution" bind:this={attributionContainer}></div>
+
 	<div class="playbar">
-		<div class="playbar-controls">
-			<button class="playbar-btn" on:click={togglePlayPause} aria-label="Lecture/Pause">
+		<div class="buttons">
+			<button class="ctrl-btn" aria-label="Année précédente" disabled={currentIndex === 0} on:click={() => goTo(currentIndex - 1)}>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 6 9 12 15 18" /></svg>
+			</button>
+			<button class="ctrl-btn play" aria-label={isPlaying ? 'Pause' : currentIndex === lastIndex ? 'Revoir depuis le début' : 'Lecture'} on:click={togglePlay}>
 				{#if isPlaying}
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-						<rect x="6" y="4" width="4" height="16" />
-						<rect x="14" y="4" width="4" height="16" />
-					</svg>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+				{:else if currentIndex === lastIndex}
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10" /><path d="M3.5 15a9 9 0 1 0 2.1-9.4L1 10" /></svg>
 				{:else}
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-						<polygon points="5,3 19,12 5,21" />
-					</svg>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6,4 20,12 6,20" /></svg>
 				{/if}
+			</button>
+			<button class="ctrl-btn" aria-label="Année suivante" disabled={currentIndex === lastIndex} on:click={() => goTo(currentIndex + 1)}>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18" /></svg>
 			</button>
 		</div>
 
-		<div class="timeline">
-			<div class="timeline-track">
-				<div class="timeline-progress" style="width: {progressPercent}%"></div>
+		<div
+			class="timeline"
+			bind:this={track}
+			role="slider"
+			tabindex="0"
+			aria-label="Année affichée"
+			aria-valuemin={entries[0].startYear}
+			aria-valuemax={entries[lastIndex].startYear}
+			aria-valuenow={current.startYear}
+			aria-valuetext={current.year}
+			on:pointerdown={onTrackPointerDown}
+			on:pointermove={onTrackPointerMove}
+			on:pointerup={onTrackPointerUp}
+			on:pointercancel={onTrackPointerUp}
+			on:keydown={onTrackKeydown}
+		>
+			<div class="track">
+				<div class="progress" style="width: {progress}%"></div>
 			</div>
-			<div class="timeline-years">
-				{#each allOrthos as group, idx}
-					{@const position = (idx / (allOrthos.length - 1)) * 100}
-					<button
-						class="year-marker"
-						class:active={idx === currentIndex}
-						on:click={() => jumpToYear(idx)}
-						style="left: {position}%"
-						aria-label="Aller à l'année {group.displayYear}"
-					>
-						<span class="year-label">{group.displayYear}</span>
-					</button>
-				{/each}
-			</div>
+			{#each breaks as position}
+				<span class="break" style="left: {position}%" aria-hidden="true"></span>
+			{/each}
+			{#each entries as entry, i}
+				<span class="tick" class:active={i === currentIndex} class:past={i < currentIndex} style="left: {positions[i]}%" aria-hidden="true">
+					{#if labelled.has(i)}<span class="tick-label" class:first={i === 0} class:last={i === lastIndex}>{entry.year.split('-')[0]}</span>{/if}
+				</span>
+			{/each}
 		</div>
 	</div>
+
+	<Hint text="Appuyez sur lecture ou glissez sur la frise pour changer d'année" storageKey="hint-traveltime" />
 </div>
 
-<Tutorial steps={tutorialSteps} storageKey="tutorial-traveltime" />
-
 <style>
-	/* Geocoder width */
-	:global(.maplibregl-ctrl-geocoder) {
-		width: 600px;
-		max-width: calc(100vw - 20px);
-	}
-
-	@media (max-width: 768px) {
-		:global(.maplibregl-ctrl-geocoder) {
-			width: calc(100vw - 20px);
-		}
-	}
-
-	.travel-container {
+	.travel {
+		--chrome-bottom: 112px;
 		position: relative;
-		width: 100vw;
-		height: 100vh;
+		width: 100%;
+		height: 100%;
+		min-height: 500px;
 		overflow: hidden;
+		font-family: var(--font-ui);
 	}
 
 	.map-container {
 		position: absolute;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
+		inset: 0;
 	}
 
 	.year-overlay {
 		position: absolute;
-		bottom: 110px;
-		left: 20px;
 		z-index: 10;
-		color: white;
-		font-size: 48px;
-		font-weight: bold;
-		font-family: 'Zalando Sans', sans-serif;
-		opacity: 0.8;
-		text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8);
+		top: calc(var(--chrome-gap) * 2 + var(--ctrl-size) + 12px);
+		left: var(--chrome-gap);
+		display: flex;
+		flex-direction: column;
+		color: #fff;
+		text-shadow: var(--year-shadow);
 		pointer-events: none;
+		line-height: 1;
 	}
 
-	.share-wrapper-traveltime {
-		position: absolute;
-		bottom: 123px;
-		right: 22px;
-		z-index: 10;
+	.year-overlay .year {
+		font-size: clamp(32px, 7vw, 56px);
+		font-weight: 700;
+		letter-spacing: -0.01em;
 	}
 
-	.share-wrapper-traveltime :global(.share-buttons) {
-		position: static;
+	.year-overlay .meta {
+		margin-top: 6px;
+		font-size: 14px;
+	}
+
+	.year-overlay.loading .year {
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		50% {
+			opacity: 0.55;
+		}
 	}
 
 	.playbar {
 		position: absolute;
-		bottom: 50px;
-		left: 20px;
-		right: 20px;
-		z-index: 10;
-		background: rgba(0, 0, 0, 0.85);
-		padding: 16px 20px;
-		border-radius: 12px;
-		backdrop-filter: blur(10px);
+		z-index: 100;
+		left: var(--chrome-gap);
+		right: var(--chrome-gap);
+		bottom: 28px;
 		display: flex;
 		align-items: center;
 		gap: 16px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		padding: 12px 16px;
+		border-radius: 8px;
+		background: var(--overlay);
+		color: #fff;
 	}
 
-	.playbar-controls {
+	.buttons {
 		display: flex;
-		gap: 8px;
+		gap: 6px;
 		flex-shrink: 0;
 	}
 
-	.playbar-btn {
-		background: white;
-		border: none;
-		width: 36px;
-		height: 36px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		flex-shrink: 0;
-		color: #0ea5e9;
-		transition: all 0.2s;
+	.buttons .ctrl-btn {
+		box-shadow: none;
 	}
 
-	.playbar-btn:hover {
-		background: #f0f9ff;
-		transform: scale(1.1);
+	.buttons .ctrl-btn:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 
-	.playbar-btn:focus-visible,
-	.year-marker:focus-visible {
-		outline: 2px solid #3b82f6;
-		outline-offset: 2px;
+	.buttons .play {
+		background: var(--accent);
+		color: #fff;
 	}
-
 
 	.timeline {
+		position: relative;
 		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		position: relative;
+		height: 40px;
+		cursor: pointer;
+		touch-action: none;
 	}
 
-	.timeline-track {
-		width: 100%;
-		height: 6px;
-		background: rgba(255, 255, 255, 0.2);
-		border-radius: 3px;
-		position: relative;
-		overflow: visible;
+	.timeline:focus-visible {
+		outline: 2px solid #fff;
+		outline-offset: 4px;
+		border-radius: 4px;
 	}
 
-	.timeline-progress {
-		height: 100%;
-		background: #0ea5e9;
-		border-radius: 3px;
-	}
-
-	.timeline-years {
+	.track {
 		position: absolute;
-		top: 0;
 		left: 0;
 		right: 0;
-		height: 12px;
-		z-index: 10;
-		transform: translateY(-50%);
+		top: 10px;
+		height: 4px;
+		border-radius: 2px;
+		background: rgba(255, 255, 255, 0.25);
 	}
 
-	.year-marker {
+	.progress {
+		height: 100%;
+		border-radius: 2px;
+		background: var(--accent);
+	}
+
+	.break {
 		position: absolute;
-		transform: translateX(-50%);
-		background: none;
-		border: none;
-		cursor: pointer;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 2px;
-	}
-
-	.year-marker::before {
-		content: '';
-		width: 2px;
+		top: 4px;
+		width: 6px;
 		height: 16px;
+		transform: translateX(-50%) skewX(-20deg);
+		background: var(--overlay);
+		border-left: 1px solid rgba(255, 255, 255, 0.6);
+		border-right: 1px solid rgba(255, 255, 255, 0.6);
+	}
+
+	.tick {
+		position: absolute;
+		top: 6px;
+		width: 2px;
+		height: 12px;
+		transform: translateX(-50%);
 		background: rgba(255, 255, 255, 0.5);
-		display: block;
-		transition: all 0.2s;
 	}
 
-	.year-marker:hover::before,
-	.year-marker.active::before {
-		background: white;
+	.tick.past {
+		background: rgba(255, 255, 255, 0.8);
 	}
 
-	.year-label {
-		color: rgba(255, 255, 255, 0.6);
-		font-size: 9px;
-		font-family: 'Zalando Sans', sans-serif;
+	.tick.active {
+		top: 2px;
+		width: 12px;
+		height: 20px;
+		border-radius: 3px;
+		background: #fff;
+	}
+
+	.tick-label {
+		position: absolute;
+		top: 22px;
+		left: 50%;
+		transform: translateX(-50%);
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.7);
 		white-space: nowrap;
-		transition: all 0.2s;
-		margin-top: 2px;
 	}
 
-	.year-marker:hover .year-label,
-	.year-marker.active .year-label {
-		color: white;
-		font-weight: bold;
+	.tick-label.first {
+		left: 0;
+		transform: none;
 	}
 
+	.tick-label.last {
+		left: auto;
+		right: 0;
+		transform: none;
+	}
 
-
-	@media (max-width: 768px) {
-		.year-overlay {
-			bottom: 110px;
-			left: 10px;
-			font-size: 32px;
-		}
-
-		.playbar {
-			padding: 12px 16px;
-			left: 10px;
-			right: 10px;
-			bottom: 50px;
-		}
-
-		.playbar-btn {
-			width: 32px;
-			height: 32px;
-		}
-
-		.year-label {
-			font-size: 7px;
-		}
+	.tick.active .tick-label {
+		top: 26px;
+		color: #fff;
+		font-weight: 700;
 	}
 
 	@media (max-width: 640px) {
-		.year-label {
-			display: none;
+		.playbar {
+			gap: 12px;
+			padding: 10px 12px;
 		}
 	}
 </style>
